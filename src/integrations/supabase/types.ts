@@ -2064,6 +2064,7 @@ export type Database = {
           route_source: string | null
           router: string | null
           sell_fees: number | null
+          settlement_status: string | null
           slippage_bps: number | null
           strategy_id: string | null
           strategy_trigger: string | null
@@ -2122,6 +2123,7 @@ export type Database = {
           route_source?: string | null
           router?: string | null
           sell_fees?: number | null
+          settlement_status?: string | null
           slippage_bps?: number | null
           strategy_id?: string | null
           strategy_trigger?: string | null
@@ -2180,6 +2182,7 @@ export type Database = {
           route_source?: string | null
           router?: string | null
           sell_fees?: number | null
+          settlement_status?: string | null
           slippage_bps?: number | null
           strategy_id?: string | null
           strategy_trigger?: string | null
@@ -4680,6 +4683,15 @@ export type Database = {
         }
         Returns: Json
       }
+      settle_buy_trade_v2: {
+        Args: {
+          p_actual_spent_eur: number
+          p_mock_trade_id: string
+          p_reserved_amount: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
       settle_deposit_attribution: {
         Args: {
           p_amount: number
@@ -4701,6 +4713,18 @@ export type Database = {
         Args: {
           p_is_test_mode?: boolean
           p_proceeds: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      settle_sell_trade_v2: {
+        Args: {
+          p_mock_trade_id: string
+          p_proceeds_eur: number
+          p_sell_price: number
+          p_sold_qty: number
+          p_strategy_id: string
+          p_symbol: string
           p_user_id: string
         }
         Returns: Json
