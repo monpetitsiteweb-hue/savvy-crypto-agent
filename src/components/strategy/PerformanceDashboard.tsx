@@ -9,7 +9,7 @@ import { TrendingUp, TrendingDown, Activity, DollarSign, Target, Brain, AlertCir
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
-import { CanarySwapButton } from './CanarySwapButton';
+
 
 interface PerformanceData {
   recent_trades: Array<{
@@ -201,7 +201,7 @@ export const PerformanceDashboard: React.FC = () => {
           <p className="text-muted-foreground">Track your trading performance and AI effectiveness</p>
         </div>
         <div className="flex items-center gap-3">
-          <CanarySwapButton />
+          
           <Button onClick={refreshData} disabled={refreshing}>
             {refreshing ? (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>

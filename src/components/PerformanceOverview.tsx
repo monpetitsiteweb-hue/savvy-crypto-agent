@@ -12,6 +12,7 @@ import { useMarketData } from "@/contexts/MarketDataContext";
 import { useHoldingsPrices } from "@/hooks/useHoldingsPrices";
 import { TrendingUp, TrendingDown, DollarSign, Activity, Target, TestTube, Percent, Fuel, AlertTriangle, BarChart3 } from "lucide-react";
 import { NoActiveStrategyState } from "./NoActiveStrategyState";
+import { CanarySwapButton } from "./strategy/CanarySwapButton";
 import { PortfolioNotInitialized } from "./PortfolioNotInitialized";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
 import { useMockWallet } from "@/hooks/useMockWallet";
@@ -204,16 +205,19 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   return (
     <Card className={`bg-slate-800/50 border-slate-600 ${testMode ? "border-orange-500/20" : ""}`}>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-white">
-          <Activity className="h-5 w-5" />
-          Performance Overview
-          {testMode && (
-            <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
-              <TestTube className="h-3 w-3 mr-1" />
-              Test Mode
-            </Badge>
-          )}
-        </CardTitle>
+        <div className="flex items-center justify-between w-full">
+          <CardTitle className="flex items-center gap-2 text-white">
+            <Activity className="h-5 w-5" />
+            Performance Overview
+            {testMode && (
+              <Badge variant="secondary" className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+                <TestTube className="h-3 w-3 mr-1" />
+                Test Mode
+              </Badge>
+            )}
+          </CardTitle>
+          <CanarySwapButton />
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Partial Valuation Warning Badge - improved messaging */}
