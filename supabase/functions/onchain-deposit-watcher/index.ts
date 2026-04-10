@@ -38,6 +38,67 @@ const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a
 
 // Batch RPC config
 const RPC_BATCH_SIZE = 50; // blocks per batch HTTP call
+const SEQUENTIAL_THROTTLE_MS = 100; // delay between sequential calls
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Fetch a single block with full transactions via individual RPC call.
+ */
+async function fetchBlockSingle(blockNum: number): Promise<any> {
+  const resp = await fetch(BASE_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_getBlockByNumber",
+      params: ["0x" + blockNum.toString(16), true],
+      id: 1,
+    }),
+  });
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  return json?.result ?? null;
+}
+
+/**
+ * Extract ETH transfers from a block result targeting botAddress.
+ */
+function extractEthTransfers(
+  blockResult: any,
+  blockNum: number,
+  botAddressLower: string
+): TransferEvent[] {
+  if (!blockResult?.transactions) return [];
+  const blockTimestamp = new Date(
+    parseInt(blockResult.timestamp, 16) * 1000
+  ).toISOString();
+  const found: TransferEvent[] = [];
+  for (const tx of blockResult.transactions) {
+    if (
+      tx.to &&
+      tx.to.toLowerCase() === botAddressLower &&
+      tx.value &&
+      tx.value !== "0x0"
+    ) {
+      const valueWei = BigInt(tx.value);
+      if (valueWei > 0n) {
+        found.push({
+          txHash: tx.hash,
+          blockNumber: blockNum,
+          blockTimestamp,
+          fromAddress: tx.from.toLowerCase(),
+          toAddress: botAddressLower,
+          amount: Number(valueWei) / 1e18,
+          amountRaw: valueWei.toString(),
+          asset: "ETH",
+          assetAddress: null,
+        });
+      }
+    }
+  }
+  return found;
+}
 
 interface TransferEvent {
   txHash: string;
@@ -164,68 +225,85 @@ Deno.serve(async (req) => {
       blockNums.push(b);
     }
 
-    // Process in batches of RPC_BATCH_SIZE
+    // Process in batches — with automatic sequential fallback
+    let usedSequentialFallback = false;
+
     for (let i = 0; i < blockNums.length; i += RPC_BATCH_SIZE) {
       const batch = blockNums.slice(i, i + RPC_BATCH_SIZE);
 
       const calls = batch.map((blockNum, idx) => ({
         method: "eth_getBlockByNumber",
-        params: ["0x" + blockNum.toString(16), true], // true = full tx objects
-        id: i + idx + 100, // unique id
+        params: ["0x" + blockNum.toString(16), true],
+        id: i + idx + 100,
       }));
+
+      let batchWorked = false;
 
       try {
         const results = await batchRpc(calls);
 
-        for (let j = 0; j < results.length; j++) {
-          const result = results[j];
-          if (!result?.result?.transactions) continue;
+        // Check if batch actually returned valid block data
+        const validCount = results.filter(
+          (r: any) => r?.result?.transactions !== undefined
+        ).length;
 
-          // Recover blockNum via response id, not positional index
-          const callIndex = result.id - 100 - i;
-          const blockNum = batch[callIndex];
-          if (blockNum === undefined) continue;
-          const blockTimestamp = new Date(
-            parseInt(result.result.timestamp, 16) * 1000
-          ).toISOString();
-
-          for (const tx of result.result.transactions) {
-            if (
-              tx.to &&
-              tx.to.toLowerCase() === botAddressLower &&
-              tx.value &&
-              tx.value !== "0x0"
-            ) {
-              const valueWei = BigInt(tx.value);
-              if (valueWei > 0n) {
-                transfers.push({
-                  txHash: tx.hash,
-                  blockNumber: blockNum,
-                  blockTimestamp,
-                  fromAddress: tx.from.toLowerCase(),
-                  toAddress: botAddressLower,
-                  amount: Number(valueWei) / 1e18,
-                  amountRaw: valueWei.toString(),
-                  asset: "ETH",
-                  assetAddress: null,
-                });
-
-                logger.info("[deposit-watcher] Found native ETH transfer", {
-                  tx_hash: tx.hash.slice(0, 10),
-                  from: tx.from.slice(0, 10),
-                  amount_eth: Number(valueWei) / 1e18,
-                });
-              }
+        if (validCount > 0) {
+          batchWorked = true;
+          for (let j = 0; j < results.length; j++) {
+            const result = results[j];
+            if (!result?.result?.transactions) continue;
+            const callIndex = result.id - 100 - i;
+            const blockNum = batch[callIndex];
+            if (blockNum === undefined) continue;
+            const found = extractEthTransfers(result.result, blockNum, botAddressLower);
+            for (const t of found) {
+              transfers.push(t);
+              logger.info("[deposit-watcher] Found native ETH transfer", {
+                tx_hash: t.txHash.slice(0, 10),
+                from: t.fromAddress.slice(0, 10),
+                amount_eth: t.amount,
+              });
             }
           }
+        } else {
+          logger.warn("[deposit-watcher] Batch returned 0 valid blocks, falling back to sequential", {
+            batch_size: batch.length,
+          });
         }
       } catch (batchErr) {
-        logger.warn("[deposit-watcher] Batch fetch failed", {
-          batch_start: batch[0],
-          batch_size: batch.length,
+        logger.warn("[deposit-watcher] Batch RPC failed, falling back to sequential", {
           error: batchErr instanceof Error ? batchErr.message : String(batchErr),
         });
       }
+
+      // Sequential fallback
+      if (!batchWorked) {
+        usedSequentialFallback = true;
+        for (const blockNum of batch) {
+          try {
+            const blockResult = await fetchBlockSingle(blockNum);
+            const found = extractEthTransfers(blockResult, blockNum, botAddressLower);
+            for (const t of found) {
+              transfers.push(t);
+              logger.info("[deposit-watcher] Found native ETH transfer (seq)", {
+                tx_hash: t.txHash.slice(0, 10),
+                from: t.fromAddress.slice(0, 10),
+                amount_eth: t.amount,
+              });
+            }
+          } catch (seqErr) {
+            logger.warn("[deposit-watcher] Sequential block fetch failed", {
+              block: blockNum,
+              error: seqErr instanceof Error ? seqErr.message : String(seqErr),
+            });
+          }
+          await sleep(SEQUENTIAL_THROTTLE_MS);
+        }
+      }
+    }
+
+    if (usedSequentialFallback) {
+      logger.info("[deposit-watcher] Used sequential fallback for ETH scan");
     }
 
     // ──────────────────────────────────────────────
