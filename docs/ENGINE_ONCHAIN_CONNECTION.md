@@ -57,7 +57,11 @@ backend-shadow-engine (BACKEND_ENGINE_MODE=LIVE)
 | `supabase/functions/trading-decision-coordinator/index.ts` | L3183-3186 | Ajout `isAutomatedIntelligent` pour skip prerequisites |
 | | L3266-3271 | Wallet resolution : intelligent utilise SYSTEM_WALLET |
 | | L3570-3678 | **Remplacé** : insertion `execution_jobs` → appel synchrone `onchain-sign-and-send` avec lock + placeholder + error handling |
+| | L3783 (catch) | **P4** : Cleanup ghost placeholder en cas d'échec on-chain (`execution_source='onchain_failed'`, `is_open_position=false`) |
+| | L6072-6078 | **P2** : Ajout `.eq('is_test_mode', canonicalIsTestMode)` sur la query d'exposition |
+| | L6474-6481 | **P3** : Ajout `.eq('is_test_mode', canonicalIsTestMode)` sur la query maxLotsPerSymbol |
 | `supabase/functions/backend-shadow-engine/index.ts` | L1499 | `fetchOpenPositions()` lit maintenant `mock_trades.is_test_mode` dynamiquement selon `BACKEND_ENGINE_MODE` |
+| | L1499 | **P1** : Ajout `.eq('execution_confirmed', true)` pour exclure les placeholders (amount=0, price=0) |
 | | L1626 | `validateNetPosition()` lit maintenant `mock_trades.is_test_mode` dynamiquement selon `BACKEND_ENGINE_MODE` |
 
 ## 3. Fichiers NON modifiés
