@@ -117,7 +117,66 @@ Le range `from_block → currentBlock` fait ~1500 blocks, ce qui dépasse le seu
 
 ---
 
-## 4. Fix proposé — Option A + B combinées
+## 4. Fix A+B — APPLIQUÉ ✅ (2026-04-10 17:48 UTC)
+
+### Changements appliqués
+
+**Option A — `to_block` explicite** : Ajout du paramètre `to_block` dans le payload. Si absent, `toBlock = currentBlock`.
+
+**Option B — `blockStep = 1` quand `from_block` explicite** :
+```typescript
+const blockStep = explicitFromBlock ? 1 : (totalBlocks <= 1000 ? 1 : Math.max(1, Math.floor(totalBlocks / 200)));
+```
+
+**Remplacement de `currentBlock` par `toBlock`** dans :
+- La boucle de scan ETH (ligne 240)
+- L'appel `eth_getLogs` ERC20 (ligne 346)
+- Le résumé de réponse (ligne 626)
+
+### Résultat du test
+
+```json
+POST { "from_block": 44523100, "to_block": 44523200 }
+
+{
+  "success": true,
+  "summary": {
+    "transfers_scanned": 1,      // ← TX TROUVÉE ✅
+    "matched": 0,
+    "unmatched": 0,
+    "ambiguous": 0,
+    "already_processed": 1,      // ← déjà traitée (idempotence OK)
+    "block_range": { "from": 44523100, "to": 44523200 }
+  },
+  "duration_ms": 24519
+}
+```
+
+**La transaction 0.0225 ETH du block 44523165 est détectée.** `already_processed: 1` signifie qu'elle avait déjà été insérée (probablement via un test précédent).
+
+---
+
+## 5. Logs de debug (temporaires)
+
+Logs ajoutés pour diagnostic dans `extractEthTransfers()` et la boucle principale. À retirer après stabilisation.
+
+---
+
+## 6. État final du fichier
+
+| Section | Lignes | Status |
+|---------|--------|--------|
+| Imports & constantes | 1-43 | ✅ |
+| `fetchBlockSingle()` | 48-62 | ✅ |
+| `extractEthTransfers()` | 67-116 | ✅ + debug logs |
+| `TransferEvent` interface | 118-128 | ✅ |
+| `batchRpc()` | 134-162 | ✅ |
+| Parsing `from_block` + `to_block` | 184-200 | ✅ MODIFIÉ |
+| `blockStep` (force 1 si explicit) | ~237 | ✅ MODIFIÉ |
+| Boucle scan → `toBlock` | ~240 | ✅ MODIFIÉ |
+| ERC20 getLogs → `toBlock` | ~346 | ✅ MODIFIÉ |
+| Réponse block_range → `toBlock` | ~626 | ✅ MODIFIÉ |
+| Attribution | 427-604 | ✅ |
 
 ### Option A : Ajouter `to_block` explicite
 Permet de borner le range pour éviter un `totalBlocks` trop grand :
