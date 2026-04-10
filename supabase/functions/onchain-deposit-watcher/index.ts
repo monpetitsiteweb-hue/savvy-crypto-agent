@@ -67,9 +67,24 @@ async function fetchBlockSingle(blockNum: number): Promise<any> {
 function extractEthTransfers(
   blockResult: any,
   blockNum: number,
-  botAddressLower: string
+  botAddressLower: string,
+  debug = false
 ): TransferEvent[] {
-  if (!blockResult?.transactions) return [];
+  if (!blockResult?.transactions) {
+    if (debug) logger.warn("[deposit-watcher][DEBUG] Block has no transactions field", { block: blockNum, keys: blockResult ? Object.keys(blockResult) : "null" });
+    return [];
+  }
+  const txCount = blockResult.transactions.length;
+  if (debug && blockNum === 44523165) {
+    const first3To = blockResult.transactions.slice(0, 3).map((t: any) => t.to?.toLowerCase() ?? "null");
+    logger.info("[deposit-watcher][DEBUG] TARGET BLOCK 44523165", { tx_count: txCount, first3_to: first3To, bot: botAddressLower });
+    // Find our tx specifically
+    const matching = blockResult.transactions.filter((t: any) => t.to && t.to.toLowerCase() === botAddressLower);
+    logger.info("[deposit-watcher][DEBUG] Matching txs in 44523165", { count: matching.length, values: matching.map((t: any) => ({ from: t.from, to: t.to, value: t.value, hash: t.hash?.slice(0, 12) })) });
+  }
+  if (debug && txCount > 0) {
+    logger.info("[deposit-watcher][DEBUG] Block scanned", { block: blockNum, tx_count: txCount });
+  }
   const blockTimestamp = new Date(
     parseInt(blockResult.timestamp, 16) * 1000
   ).toISOString();
