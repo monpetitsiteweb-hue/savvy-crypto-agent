@@ -111,8 +111,8 @@ Deno.serve(async (req) => {
     
     // To avoid too many RPC calls, sample blocks or use a reasonable range
     // For each block, get transactions and filter for to === BOT_ADDRESS
-    const blocksToCheck = Math.min(lookbackBlocks, 200); // Limit to avoid timeout
-    const blockStep = Math.max(1, Math.floor(lookbackBlocks / blocksToCheck));
+    // Only sample blocks for very large windows (>1000). For normal ranges, scan every block.
+    const blockStep = lookbackBlocks <= 1000 ? 1 : Math.max(1, Math.floor(lookbackBlocks / 200));
     
     for (let blockNum = fromBlock; blockNum <= currentBlock; blockNum += blockStep) {
       try {
