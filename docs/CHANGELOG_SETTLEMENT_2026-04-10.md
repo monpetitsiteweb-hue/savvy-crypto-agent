@@ -315,13 +315,110 @@ onchain-settlement                          ← NOUVEAU
 
 ---
 
-## 7. Fichiers NON modifiés (confirmation explicite)
+## 7. ÉTAPE 4 — Fixes guards (P1, P2, P3, P4)
+
+### FIX P1 — fetchOpenPositions : exclure placeholders non confirmés
+
+**Fichier** : `supabase/functions/backend-shadow-engine/index.ts` L1494-1501
+
+**AVANT** :
+```typescript
+.eq('is_test_mode', BACKEND_ENGINE_MODE !== 'LIVE')
+.order('executed_at', { ascending: true })
+```
+
+**APRÈS** :
+```typescript
+.eq('is_test_mode', BACKEND_ENGINE_MODE !== 'LIVE')
+.eq('execution_confirmed', true)
+.order('executed_at', { ascending: true })
+```
+
+**Impact** : Les placeholders (amount=0, price=0) ne corrompent plus les calculs de position.
+
+### FIX P2 — detectConflicts : filtre is_test_mode sur query d'exposition
+
+**Fichier** : `supabase/functions/trading-decision-coordinator/index.ts` L6072-6078
+
+**AVANT** :
+```typescript
+const { data: allTrades, error: tradesQueryError } = await supabaseClient
+  .from("mock_trades")
+  .select("cryptocurrency, amount, price, trade_type")
+  .eq("user_id", intent.userId)
+  .eq("strategy_id", intent.strategyId)
+  .in("trade_type", ["buy", "sell"])
+```
+
+**APRÈS** :
+```typescript
+const canonicalIsTestMode = strategyConfig?.canonicalIsTestMode ?? true;
+const { data: allTrades, error: tradesQueryError } = await supabaseClient
+  .from("mock_trades")
+  .select("cryptocurrency, amount, price, trade_type")
+  .eq("user_id", intent.userId)
+  .eq("strategy_id", intent.strategyId)
+  .eq("is_test_mode", canonicalIsTestMode)
+  .in("trade_type", ["buy", "sell"])
+```
+
+**Impact** : Les mock trades TEST historiques ne bloquent plus les BUY REAL légitimes.
+
+### FIX P3 — maxLotsPerSymbol : filtre is_test_mode sur query de comptage
+
+**Fichier** : `supabase/functions/trading-decision-coordinator/index.ts` L6474-6481
+
+**AVANT** :
+```typescript
+.eq("user_id", intent.userId)
+.eq("strategy_id", intent.strategyId)
+.in("cryptocurrency", symbolVariants)
+.eq("trade_type", "buy")
+.eq("is_open_position", true);
+```
+
+**APRÈS** :
+```typescript
+.eq("user_id", intent.userId)
+.eq("strategy_id", intent.strategyId)
+.eq("is_test_mode", canonicalIsTestMode)
+.in("cryptocurrency", symbolVariants)
+.eq("trade_type", "buy")
+.eq("is_open_position", true);
+```
+
+**Impact** : Le comptage des lots ouverts respecte l'isolation TEST/REAL.
+
+### FIX P4 — Cleanup ghost placeholder en cas d'échec on-chain
+
+**Fichier** : `supabase/functions/trading-decision-coordinator/index.ts` L3783 (catch block)
+
+**AVANT** : Aucun cleanup — le placeholder restait avec `execution_confirmed=false`, `is_open_position=true`.
+
+**APRÈS** — Bloc ajouté dans le catch, avant le `decision_events.insert` :
+```typescript
+await supabaseClient
+  .from('mock_trades')
+  .update({
+    execution_source: 'onchain_failed',
+    is_open_position: false,
+    notes: `FAILED: ${execError.message}`,
+  })
+  .eq('id', mockTradeId)
+  .eq('execution_confirmed', false);
+```
+
+**Impact** : Les placeholders fantômes sont marqués comme échoués et fermés, empêchant les retries infinis du moteur.
+
+---
+
+## 8. Fichiers NON modifiés (confirmation explicite)
 
 | Fichier | Statut |
 |---------|--------|
 | `supabase/functions/onchain-sign-and-send/index.ts` | ❌ Non modifié |
 | `supabase/functions/onchain-execute/index.ts` | ❌ Non modifié |
-| `supabase/functions/trading-decision-coordinator/index.ts` | ❌ Non modifié |
-| `supabase/functions/backend-shadow-engine/index.ts` | ❌ Non modifié |
+| `supabase/functions/onchain-settlement/index.ts` | ❌ Non modifié |
+| `supabase/functions/onchain-receipts/index.ts` | ❌ Non modifié (étape 3) |
 | `supabase/functions/_shared/*` | ❌ Non modifié |
 | `src/**/*` | ❌ Aucun fichier frontend touché |
