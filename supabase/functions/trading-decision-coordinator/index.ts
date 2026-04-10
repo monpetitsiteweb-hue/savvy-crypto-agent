@@ -3570,114 +3570,317 @@ serve(async (req) => {
       }
 
       // =============================================================================
-      // AUTOMATED PATH: Route to execution_jobs for async worker processing
-      // This path is for automated trades from backend-shadow-engine
+      // AUTOMATED PATH: Direct synchronous on-chain execution
+      // This path is for automated trades from backend-shadow-engine (source=intelligent)
+      // Same architecture as Manual/System Operator: coordinator → onchain-sign-and-send
       // =============================================================================
-      console.log("📋 COORDINATOR: AUTOMATED PATH - inserting execution_job");
+      console.log("🤖 COORDINATOR: AUTOMATED INTELLIGENT PATH - synchronous on-chain execution");
 
-      // Get market price for the payload
       const baseSymbol = toBaseSymbol(intent.symbol);
-      let marketPrice = null;
-      try {
-        const priceData = await getMarketPrice(baseSymbol, 15000);
-        marketPrice = priceData?.price;
-      } catch (err: any) {
-        console.warn("[Coordinator] Could not fetch price for REAL trade:", err?.message);
-        marketPrice = intent.metadata?.currentPrice || intent.metadata?.price || null;
+      const slippageBps = 50; // Tighter slippage for automated trades
+
+      // Determine amount based on side (same logic as Manual path)
+      let tradeAmount: number;
+      if (intent.side === "BUY") {
+        const eurAmount = intent.metadata?.eurAmount;
+        if (!eurAmount || eurAmount <= 0) {
+          console.error("❌ COORDINATOR: Automated BUY requires eurAmount in metadata");
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_missing_eur_amount",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_missing_eur_amount",
+                request_id: requestId,
+                message: "Automated BUY requires eurAmount in metadata.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        tradeAmount = eurAmount;
+      } else {
+        const sellQty = intent.qtySuggested;
+        if (!sellQty || sellQty <= 0) {
+          console.error("❌ COORDINATOR: Automated SELL requires qtySuggested");
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "blocked_missing_sell_qty",
+              decision: {
+                action: "BLOCK",
+                reason: "blocked_missing_sell_qty",
+                request_id: requestId,
+                message: "Automated SELL requires qtySuggested.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        tradeAmount = sellQty;
       }
 
-      const qty = intent.qtySuggested || 0;
-      const totalValue = marketPrice && qty ? qty * marketPrice : null;
+      const PROJECT_URL = Deno.env.get("SB_URL") || Deno.env.get("SUPABASE_URL");
+      const SERVICE_ROLE = Deno.env.get("SB_SERVICE_ROLE") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      const BOT_ADDRESS = Deno.env.get("BOT_ADDRESS");
 
-      // Generate idempotency key for REAL trades
-      const realIdempotencyKey = `real_${intent.strategyId}_${baseSymbol}_${intent.side}_${Date.now()}`;
-
-      // Insert READY job into execution_jobs
-      const { data: jobResult, error: jobError } = await supabaseClient
-        .from("execution_jobs")
-        .insert({
-          user_id: intent.userId,
-          strategy_id: intent.strategyId,
-          execution_target: "REAL",
-          execution_mode: "ONCHAIN", // Default; signer can override based on config
-          kind: "SWAP",
-          side: intent.side,
-          symbol: baseSymbol,
-          amount: qty,
-          status: "READY",
-          idempotency_key: realIdempotencyKey,
-          payload: {
-            intent_source: intent.source,
-            intent_reason: intent.reason,
-            confidence: intent.confidence,
-            market_price: marketPrice,
-            total_value_eur: totalValue,
-            wallet_address: walletAddress,
-            request_id: requestId,
-            metadata: intent.metadata,
-            created_at: new Date().toISOString(),
-          },
-        })
-        .select("id")
-        .single();
-
-      if (jobError) {
-        console.error("❌ COORDINATOR: Failed to insert execution_job:", jobError);
+      if (!BOT_ADDRESS) {
+        console.error("❌ COORDINATOR: BOT_ADDRESS not configured for automated REAL execution");
         return new Response(
           JSON.stringify({
             ok: false,
             success: false,
-            error: "execution_job_insert_failed",
+            error: "bot_address_not_configured",
             decision: {
-              action: "DEFER",
-              reason: "execution_job_insert_failed",
+              action: "BLOCK",
+              reason: "bot_address_not_configured",
               request_id: requestId,
-              retry_in_ms: 5000,
-              error: jobError.message,
+              message: "Automated REAL execution requires BOT_ADDRESS environment variable.",
             },
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
 
-      console.log("✅ COORDINATOR: REAL execution_job inserted:", jobResult?.id);
+      // STEP 2: Acquire execution lock (anti-double execution)
+      const lockKey = generateLockKey(intent.userId, intent.strategyId, baseSymbol);
+      let lockAcquired = false;
 
-      // Log decision_event for audit
-      const { data: _diRealQueued } = await supabaseClient.from("decision_events").insert({
-        user_id: intent.userId,
-        strategy_id: intent.strategyId,
-        symbol: baseSymbol,
-        side: intent.side,
-        source: intent.source,
-        confidence: intent.confidence,
-        entry_price: marketPrice,
-        reason: "real_execution_job_queued",
-        decision_ts: new Date().toISOString(),
+      try {
+        console.log(`🔒 COORDINATOR: Acquiring lock for automated execution: ${lockKey}`);
+        const { data: lockResult, error: lockError } = await supabaseClient.rpc("acquire_execution_lock", {
+          p_lock_key: lockKey,
+          p_user_id: intent.userId,
+          p_strategy_id: intent.strategyId,
+          p_symbol: baseSymbol,
+          p_request_id: requestId,
+          p_ttl_seconds: 30,
+        });
+
+        if (lockError || !lockResult) {
+          console.warn(`⏳ COORDINATOR: Lock contention on ${lockKey}, deferring`, lockError);
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              success: false,
+              decision: {
+                action: "DEFER",
+                reason: "lock_contention_automated",
+                request_id: requestId,
+                retry_in_ms: 5000,
+                message: "Another execution is in progress for this symbol.",
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        lockAcquired = true;
+        console.log(`🔒 COORDINATOR: Lock acquired: ${lockKey}`);
+
+        // STEP 3: Insert placeholder mock_trades
+        const mockTradeId = crypto.randomUUID();
+        const isBuySide = intent.side.toLowerCase() === "buy";
+        const placeholderRecord = {
+          id: mockTradeId,
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          cryptocurrency: baseSymbol,
+          trade_type: intent.side.toLowerCase(),
+          amount: tradeAmount,
+          price: 0,
+          total_value: 0,
+          executed_at: new Date().toISOString(),
+          is_test_mode: false,
+          is_system_operator: false,
+          execution_source: 'onchain_pending',
+          execution_confirmed: false,
+          notes: 'PENDING_ONCHAIN: Automated intelligent trade awaiting receipt confirmation',
+          idempotency_key: `pending_${mockTradeId}`,
+          ...(isBuySide ? { is_open_position: true } : {}),
+        };
+
+        const { error: placeholderError } = await supabaseClient
+          .from("mock_trades")
+          .insert(placeholderRecord);
+
+        if (placeholderError) {
+          console.error("❌ COORDINATOR: Failed to insert automated mock_trades placeholder:", placeholderError);
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "placeholder_insert_failed",
+              decision: {
+                action: "DEFER",
+                reason: "placeholder_insert_failed",
+                request_id: requestId,
+                message: `Failed to prepare automated trade: ${placeholderError.message}`,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        console.log("MOCK_TRADES_PENDING_ONCHAIN_INSERTED", {
+          trade_id: mockTradeId,
+          symbol: baseSymbol,
+          side: intent.side,
+          amount: tradeAmount,
+          source: "automated_intelligent",
+        });
+
+        // STEP 4: Synchronous call to onchain-sign-and-send
+        console.log("📡 COORDINATOR: AUTOMATED calling onchain-sign-and-send", {
+          symbol: baseSymbol,
+          side: intent.side,
+          amount: tradeAmount,
+          taker: BOT_ADDRESS,
+          slippageBps,
+          mock_trade_id: mockTradeId,
+        });
+
+        let signSendData: any;
+        try {
+          const signSendResponse = await fetch(`${PROJECT_URL}/functions/v1/onchain-sign-and-send`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${SERVICE_ROLE}`,
+              apikey: SERVICE_ROLE!,
+            },
+            body: JSON.stringify({
+              symbol: baseSymbol,
+              side: intent.side,
+              amount: tradeAmount,
+              taker: BOT_ADDRESS,
+              slippageBps,
+              system_operator_mode: true,
+              mock_trade_id: mockTradeId,
+            }),
+          });
+
+          if (!signSendResponse.ok) {
+            const errorText = await signSendResponse.text();
+            console.error("❌ COORDINATOR: AUTOMATED onchain-sign-and-send failed:", errorText);
+            throw new Error(`Execution failed: ${errorText}`);
+          }
+
+          signSendData = await signSendResponse.json();
+
+          if (!signSendData.ok || !signSendData.tx_hash) {
+            console.error("❌ COORDINATOR: AUTOMATED onchain-sign-and-send response invalid:", signSendData);
+            throw new Error(signSendData.error?.message || signSendData.error?.code || "Execution returned invalid response");
+          }
+
+          console.log("✅ COORDINATOR: AUTOMATED Transaction submitted:", {
+            tradeId: signSendData.tradeId,
+            txHash: signSendData.tx_hash,
+            network: signSendData.network,
+          });
+        } catch (execError: any) {
+          console.error("❌ COORDINATOR: AUTOMATED Execution error:", execError.message);
+
+          const { data: _diAutoExecFail } = await supabaseClient.from("decision_events").insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: intent.side,
+            source: intent.source,
+            confidence: intent.confidence,
+            reason: "automated_execution_failed",
+            decision_ts: new Date().toISOString(),
+            metadata: buildDecisionMetadata({
+              error: execError.message,
+              request_id: requestId,
+              fast_path: "AUTOMATED_INTELLIGENT",
+            }, false),
+          }).select("id");
+          await writeSnapshotForDirectInsert(supabaseClient, _diAutoExecFail?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, "DEFER", "automated_execution_failed", false);
+
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: "execution_failed",
+              reason: execError.message,
+              decision: {
+                action: "DEFER",
+                reason: "automated_execution_failed",
+                request_id: requestId,
+                message: `Automated execution failed: ${execError.message}`,
+              },
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
+        // STEP 5: Success — log decision_event
+        console.log("🎉 COORDINATOR: AUTOMATED TRADE EXECUTED SUCCESSFULLY", {
+          tradeId: signSendData.tradeId,
+          txHash: signSendData.tx_hash,
+          symbol: baseSymbol,
+          side: intent.side,
+          amount: tradeAmount,
+          source: "automated_intelligent",
+        });
+
+        const { data: _diAutoExecOk } = await supabaseClient.from("decision_events").insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: intent.side,
+          source: intent.source,
+          confidence: intent.confidence,
+          entry_price: signSendData.executedPrice,
+          reason: "real_execution_synchronous",
+          decision_ts: new Date().toISOString(),
+          trade_id: signSendData.tradeId,
           metadata: buildDecisionMetadata({
-            execution_job_id: jobResult?.id,
-            idempotency_key: realIdempotencyKey,
-            wallet_address: walletAddress,
-            execution_status: "QUEUED",
-            intent_side: intent.side,
-          }, false),
-      }).select("id");
-      await writeSnapshotForDirectInsert(supabaseClient, _diRealQueued?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "real_execution_job_queued", false);
-
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          success: true,
-          decision: {
-            action: intent.side,
-            reason: "real_execution_job_queued",
+            tx_hash: signSendData.tx_hash,
+            trade_id: signSendData.tradeId,
+            wallet_address: BOT_ADDRESS,
+            execution_status: "SUBMITTED",
+            fast_path: "AUTOMATED_INTELLIGENT",
+            amount: tradeAmount,
+            slippage_bps: slippageBps,
             request_id: requestId,
-            retry_in_ms: 0,
-            execution_job_id: jobResult?.id,
-            message: "REAL trade queued for async execution.",
-          },
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+          }, false),
+        }).select("id");
+        await writeSnapshotForDirectInsert(supabaseClient, _diAutoExecOk?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "real_execution_synchronous", false);
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            success: true,
+            tradeId: signSendData.tradeId,
+            tx_hash: signSendData.tx_hash,
+            executed_price: signSendData.executedPrice,
+            qty: tradeAmount,
+            decision: {
+              action: intent.side,
+              reason: "real_execution_synchronous",
+              request_id: requestId,
+              trade_id: signSendData.tradeId,
+              tx_hash: signSendData.tx_hash,
+              message: "Automated REAL trade submitted on-chain.",
+            },
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      } finally {
+        // Release lock
+        if (lockAcquired) {
+          try {
+            await supabaseClient.rpc("release_execution_lock", { p_lock_key: lockKey });
+            console.log(`🔓 COORDINATOR: Released automated lock: ${lockKey}`);
+          } catch (unlockError) {
+            console.error(`⚠️ COORDINATOR: Failed to release automated lock: ${lockKey}`, unlockError);
+          }
+        }
+      }
     }
 
     // ============= STRATEGY STATE GATE =============
