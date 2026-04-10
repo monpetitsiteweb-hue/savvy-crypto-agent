@@ -152,6 +152,38 @@ MOCK_TRADES_PENDING_ONCHAIN_INSERTED { source: "automated_intelligent" }
 | `❌ COORDINATOR: AUTOMATED onchain-sign-and-send response invalid` | Réponse malformée |
 | `❌ COORDINATOR: AUTOMATED Execution error` | Erreur générale |
 
+### Settlement logs (onchain-settlement)
+| Log | Signification |
+|---|---|
+| `🏦 [settlement] BUY settlement started` | Settlement BUY en cours |
+| `✅ [settlement] BUY settled` | Cash débité, settlement_status='SETTLED' |
+| `🏦 [settlement] SELL settlement started` | Settlement SELL + FIFO en cours |
+| `✅ [settlement] SELL settled` | Lots fermés, cash crédité, P&L calculé |
+| `⚠️ [settlement] SELL orphan detected` | SELL sans BUY correspondant (orphan_qty > 0) |
+| `⏭️ [settlement] already settled — skipped` | Idempotence : settlement déjà appliqué |
+| `❌ [settlement] Settlement failed` | Erreur RPC ou trade introuvable |
+
+### Settlement status monitoring
+```sql
+-- Trades settled avec succès
+SELECT id, cryptocurrency, trade_type, settlement_status, profit_loss
+FROM mock_trades
+WHERE settlement_status = 'SETTLED' AND is_test_mode = false
+ORDER BY executed_at DESC LIMIT 20;
+
+-- Trades en échec de settlement
+SELECT id, cryptocurrency, trade_type, settlement_status, execution_confirmed
+FROM mock_trades
+WHERE settlement_status IN ('FAILED', 'SETTLED_NO_FIFO') AND is_test_mode = false
+ORDER BY executed_at DESC;
+
+-- Lots splités (ventes partielles)
+SELECT id, cryptocurrency, amount, purchase_price, sell_price, profit_loss, original_trade_id
+FROM mock_trades
+WHERE original_trade_id IS NOT NULL
+ORDER BY executed_at DESC;
+```
+
 ### Decision events à vérifier
 ```sql
 -- Trades automatiques soumis avec succès
