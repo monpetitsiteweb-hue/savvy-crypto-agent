@@ -60,9 +60,11 @@ backend-shadow-engine (BACKEND_ENGINE_MODE=LIVE)
 | | L3783 (catch) | **P4** : Cleanup ghost placeholder en cas d'échec on-chain (`execution_source='onchain_failed'`, `is_open_position=false`) |
 | | L6072-6078 | **P2** : Ajout `.eq('is_test_mode', canonicalIsTestMode)` sur la query d'exposition |
 | | L6474-6481 | **P3** : Ajout `.eq('is_test_mode', canonicalIsTestMode)` sur la query maxLotsPerSymbol |
-| `supabase/functions/backend-shadow-engine/index.ts` | L1499 | `fetchOpenPositions()` lit maintenant `mock_trades.is_test_mode` dynamiquement selon `BACKEND_ENGINE_MODE` |
-| | L1499 | **P1** : Ajout `.eq('execution_confirmed', true)` pour exclure les placeholders (amount=0, price=0) |
-| | L1626 | `validateNetPosition()` lit maintenant `mock_trades.is_test_mode` dynamiquement selon `BACKEND_ENGINE_MODE` |
+| `supabase/functions/backend-shadow-engine/index.ts` | L1486 | `fetchOpenPositions(supabaseClient, userId, strategyId, isTestMode)` — `isTestMode` dérivé par stratégie via `strategy.execution_target` |
+| | L1500 | **P1** : `.eq('execution_confirmed', true)` pour exclure les placeholders (amount=0, price=0) |
+| | L1610 | `validateNetPosition(supabaseClient, userId, strategyId, symbol, isTestMode)` — même dérivation par stratégie |
+| | L832-845 | Boucle principale : `strategyIsTestMode = strategy.execution_target !== 'REAL'` passé aux deux fonctions |
+| | L975-978, L1189-1192 | Intent metadata : `is_test_mode` et `mode` dérivés de `strategyIsTestMode` au lieu du global |
 
 ## 3. Fichiers NON modifiés
 
@@ -73,12 +75,18 @@ backend-shadow-engine (BACKEND_ENGINE_MODE=LIVE)
 - Chemin System Operator (L2200-2500) — INTACT
 - Chemin MOCK — INTACT
 
-### Correctif critique LIVE
+### Fix architectural : is_test_mode dérivé par stratégie
 
-Le backend engine calculait encore ses positions ouvertes et sa validation de position nette uniquement sur `mock_trades.is_test_mode = true`. En pratique, un BUY on-chain confirmé (`is_test_mode = false`) restait invisible pour l'engine, ce qui empêchait ensuite les SELL automatiques LIVE. Ce correctif aligne la lecture des positions sur le mode réel du moteur :
+**Avant** : `is_test_mode` était dérivé du global `BACKEND_ENGINE_MODE` :
+- `BACKEND_ENGINE_MODE=SHADOW` → `is_test_mode = true` pour TOUTES les stratégies
+- `BACKEND_ENGINE_MODE=LIVE` → `is_test_mode = false` pour TOUTES les stratégies
+- **Conséquence** : en LIVE, les stratégies MOCK perdaient leur tracking (positions invisibles, exits gelés)
 
-- `BACKEND_ENGINE_MODE=SHADOW` → lecture des trades TEST (`is_test_mode = true`)
-- `BACKEND_ENGINE_MODE=LIVE` → lecture des trades REAL ledger (`is_test_mode = false`)
+**Après** : `is_test_mode` est dérivé de `strategy.execution_target` individuellement :
+- `execution_target = 'REAL'` → `is_test_mode = false` (voit les positions REAL)
+- `execution_target = 'MOCK'` ou absent → `is_test_mode = true` (voit les positions MOCK)
+- **BACKEND_ENGINE_MODE** garde son rôle uniquement pour l'exécution (SHADOW = log only, LIVE = invoke coordinator)
+- Les stratégies MOCK et REAL coexistent correctement dans le même cycle engine
 
 ---
 
