@@ -833,11 +833,16 @@ serve(async (req) => {
       const config = strategy.configuration || {};
       const selectedCoins = requestedSymbols || config.selectedCoins || ['BTC', 'ETH'];
       
-      console.log(`🌑 ${BACKEND_ENGINE_MODE}: Processing strategy "${strategy.strategy_name}" with coins: ${selectedCoins.join(', ')}`);
+      // ============= PER-STRATEGY MODE DERIVATION =============
+      // is_test_mode is derived from each strategy's execution_target, NOT from the global BACKEND_ENGINE_MODE.
+      // This allows LIVE engine to track MOCK positions for MOCK strategies AND REAL positions for REAL strategies simultaneously.
+      const strategyIsTestMode = strategy.execution_target !== 'REAL';
+      
+      console.log(`🌑 ${BACKEND_ENGINE_MODE}: Processing strategy "${strategy.strategy_name}" (execution_target=${strategy.execution_target}, strategyIsTestMode=${strategyIsTestMode}) with coins: ${selectedCoins.join(', ')}`);
 
       // ============= PHASE S2: FETCH OPEN POSITIONS FOR EXIT EVALUATION =============
-      const openPositions = await fetchOpenPositions(supabaseClient, userId, strategy.id);
-      console.log(`🌑 ${BACKEND_ENGINE_MODE}: Found ${openPositions.length} open positions for exit evaluation`);
+      const openPositions = await fetchOpenPositions(supabaseClient, userId, strategy.id, strategyIsTestMode);
+      console.log(`🌑 ${BACKEND_ENGINE_MODE}: Found ${openPositions.length} open positions for exit evaluation (is_test_mode=${strategyIsTestMode})`);
 
       // ============= PHASE S4: INTELLIGENT EXIT EVALUATION =============
       for (const position of openPositions) {
@@ -920,7 +925,7 @@ serve(async (req) => {
             // ============= STALE POSITION GUARD: RE-VALIDATE BEFORE SELL =============
             // Re-fetch net position from source of truth to prevent stale-position SELL attempts
             const EPSILON = 1e-8;
-            const freshNetQty = await validateNetPosition(supabaseClient, userId, strategy.id, baseSymbol);
+            const freshNetQty = await validateNetPosition(supabaseClient, userId, strategy.id, baseSymbol, strategyIsTestMode);
             
             if (freshNetQty <= EPSILON) {
               // Position is closed - emit SKIP decision and clear runner state
@@ -973,9 +978,9 @@ serve(async (req) => {
               reason: exitResult.exitDecision.trigger,
               qtySuggested: position.totalAmount,
               metadata: {
-                mode: BACKEND_ENGINE_MODE === 'LIVE' ? 'live' : 'mock',
+                mode: strategyIsTestMode ? 'mock' : 'live',
                 engine: 'intelligent',
-                is_test_mode: BACKEND_ENGINE_MODE !== 'LIVE',
+                is_test_mode: strategyIsTestMode,
                 context: effectiveShadowMode ? 'BACKEND_SHADOW' : exitResult.exitDecision.context,
                 trigger: exitResult.exitDecision.trigger,
                 pnl_at_decision_pct: parseFloat(pnlPercentage.toFixed(4)),
@@ -1187,9 +1192,9 @@ serve(async (req) => {
             reason: 'backend_entry_evaluation',
             qtySuggested,
             metadata: {
-              mode: BACKEND_ENGINE_MODE === 'LIVE' ? 'live' : 'mock',
+              mode: strategyIsTestMode ? 'mock' : 'live',
               engine: 'intelligent',
-              is_test_mode: BACKEND_ENGINE_MODE !== 'LIVE',
+              is_test_mode: strategyIsTestMode,
               context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
               backend_ts: new Date().toISOString(),
               currentPrice,
@@ -1483,7 +1488,7 @@ serve(async (req) => {
 
 // ============= PHASE S2: FETCH OPEN POSITIONS =============
 // IMPORTANT: Supabase caps queries at 1000 rows by default. Use pagination.
-async function fetchOpenPositions(supabaseClient: any, userId: string, strategyId: string): Promise<OpenPosition[]> {
+async function fetchOpenPositions(supabaseClient: any, userId: string, strategyId: string, isTestMode: boolean): Promise<OpenPosition[]> {
   try {
     const PAGE_SIZE = 1000;
     let allTrades: any[] = [];
@@ -1496,7 +1501,7 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
         .select('cryptocurrency, trade_type, amount, price, executed_at, id')
         .eq('user_id', userId)
         .eq('strategy_id', strategyId)
-        .eq('is_test_mode', BACKEND_ENGINE_MODE !== 'LIVE')
+        .eq('is_test_mode', isTestMode)
         .eq('execution_confirmed', true)
         .order('executed_at', { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
@@ -1611,7 +1616,8 @@ async function validateNetPosition(
   supabaseClient: any,
   userId: string,
   strategyId: string,
-  symbol: string
+  symbol: string,
+  isTestMode: boolean
 ): Promise<number> {
   try {
     // Query mock_trades for fresh net position calculation
@@ -1624,7 +1630,7 @@ async function validateNetPosition(
       .select('trade_type, amount')
       .eq('user_id', userId)
       .eq('strategy_id', strategyId)
-      .eq('is_test_mode', BACKEND_ENGINE_MODE !== 'LIVE')
+      .eq('is_test_mode', isTestMode)
       .in('cryptocurrency', uniqueSymbols);
     
     if (error) {
