@@ -973,9 +973,9 @@ serve(async (req) => {
               reason: exitResult.exitDecision.trigger,
               qtySuggested: position.totalAmount,
               metadata: {
-                mode: 'mock',
+                mode: BACKEND_ENGINE_MODE === 'LIVE' ? 'live' : 'mock',
                 engine: 'intelligent',
-                is_test_mode: true,
+                is_test_mode: BACKEND_ENGINE_MODE !== 'LIVE',
                 context: effectiveShadowMode ? 'BACKEND_SHADOW' : exitResult.exitDecision.context,
                 trigger: exitResult.exitDecision.trigger,
                 pnl_at_decision_pct: parseFloat(pnlPercentage.toFixed(4)),
@@ -1187,9 +1187,9 @@ serve(async (req) => {
             reason: 'backend_entry_evaluation',
             qtySuggested,
             metadata: {
-              mode: 'mock',
+              mode: BACKEND_ENGINE_MODE === 'LIVE' ? 'live' : 'mock',
               engine: 'intelligent',
-              is_test_mode: true,
+              is_test_mode: BACKEND_ENGINE_MODE !== 'LIVE',
               context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
               backend_ts: new Date().toISOString(),
               currentPrice,
