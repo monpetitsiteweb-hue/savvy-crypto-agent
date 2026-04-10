@@ -263,11 +263,62 @@ onchain-settlement                          ← NOUVEAU
 |---------|-----------------|--------|
 | `docs/ENGINE_ONCHAIN_CONNECTION.md` | L8-46 (flux), L153-200 (logs) | Ajout `onchain-settlement` dans le flux + queries monitoring |
 
-## 6. Fichiers NON modifiés (confirmation explicite)
+## 6. ÉTAPE 3 — Intégration onchain-receipts → onchain-settlement
+
+### Fichier modifié : `supabase/functions/onchain-receipts/index.ts`
+
+#### Bloc ajouté : lignes ~848-912 (après le bloc real_trades try/catch, avant la fermeture du `if (txSuccess && user_id && strategy_id)`)
+
+**AVANT** (ligne 846) :
+```
+    } // fin du bloc if (txSuccess && user_id && strategy_id)
+```
+
+**APRÈS** — Nouveau bloc "PHASE 4: SETTLEMENT" inséré entre la fin du real_trades try/catch et la fermeture du if :
+
+```typescript
+    // PHASE 4: SETTLEMENT — appel synchrone à onchain-settlement
+    if (mockTradeId) {
+      const settlementPayload = {
+        mockTradeId, side, symbol, userId: user_id, strategyId: strategy_id,
+        actualAmount: filledAmount, actualPrice: executedPrice,
+        totalValueEur: totalValue, gasCostEur: gasCostEth, txHash: tx_hash,
+      };
+      // fetch POST → onchain-settlement avec Bearer SERVICE_ROLE
+      // Si ok: true → log ✅
+      // Si ok: false ou fetch error → log ❌ SEV-1 mais NE PAS throw
+    }
+```
+
+**Comportement** :
+- Appel **synchrone** (await) à `onchain-settlement` via `fetch`
+- Auth : `Bearer ${SERVICE_ROLE}` (même service_role que le client Supabase)
+- Si `mockTradeId` est null (échec d'insert/update) → skip avec warning
+- Si settlement retourne `ok: false` → log SEV-1, **ne throw pas**
+- Si fetch échoue (timeout/réseau) → catch, log SEV-1, **ne throw pas**
+- Le trade on-chain est confirmé indépendamment du résultat du settlement
+
+**Logs émis** :
+| Log | Condition |
+|-----|-----------|
+| `📤 [receipts] Calling onchain-settlement { mockTradeId, side, txHash }` | Toujours (si mockTradeId existe) |
+| `✅ [receipts] Settlement confirmed { mockTradeId, side, result }` | Settlement réussi |
+| `❌ [receipts] Settlement failed — manual intervention required { ... }` | Settlement échoué (RPC error ou fetch error) |
+| `⚠️ [receipts] No mockTradeId available — skipping settlement call` | Pas de mockTradeId |
+
+### Ce qui N'A PAS été modifié
+
+- Aucune ligne existante de `onchain-receipts` n'a été modifiée ou supprimée
+- Le bloc a été **inséré** entre deux blocs existants
+- Aucune autre Edge Function touchée
+- Aucun fichier frontend touché
+
+---
+
+## 7. Fichiers NON modifiés (confirmation explicite)
 
 | Fichier | Statut |
 |---------|--------|
-| `supabase/functions/onchain-receipts/index.ts` | ❌ Non modifié |
 | `supabase/functions/onchain-sign-and-send/index.ts` | ❌ Non modifié |
 | `supabase/functions/onchain-execute/index.ts` | ❌ Non modifié |
 | `supabase/functions/trading-decision-coordinator/index.ts` | ❌ Non modifié |

@@ -843,6 +843,75 @@ async function processReceipt(trade: any) {
         error: realTradeErr.message,
       });
     }
+
+    // ============================================================================
+    // PHASE 4: SETTLEMENT — Debit/credit portfolio_capital + FIFO lot matching
+    // Synchronous call to onchain-settlement Edge Function.
+    // CRITICAL: If settlement fails, we log SEV-1 but DO NOT fail onchain-receipts.
+    // The trade is confirmed on-chain regardless of settlement outcome.
+    // ============================================================================
+    if (mockTradeId) {
+      const settlementPayload = {
+        mockTradeId,
+        side: side?.toUpperCase() || 'BUY',
+        symbol: symbol?.replace('/USD', '').replace('/EUR', '') || 'UNKNOWN',
+        userId: user_id,
+        strategyId: strategy_id,
+        actualAmount: filledAmount,
+        actualPrice: executedPrice,
+        totalValueEur: totalValue,
+        gasCostEur: gasCostEth,
+        txHash: tx_hash,
+      };
+
+      console.log(`📤 [receipts] Calling onchain-settlement`, JSON.stringify({
+        mockTradeId,
+        side: settlementPayload.side,
+        txHash: tx_hash?.substring(0, 16),
+      }));
+
+      try {
+        const settlementUrl = `${PROJECT_URL}/functions/v1/onchain-settlement`;
+        const settlementRes = await fetch(settlementUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SERVICE_ROLE}`,
+          },
+          body: JSON.stringify(settlementPayload),
+        });
+
+        const settlementResult = await settlementRes.json();
+
+        if (settlementResult.ok) {
+          console.log(`✅ [receipts] Settlement confirmed`, JSON.stringify({
+            mockTradeId,
+            side: settlementPayload.side,
+            result: settlementResult,
+          }));
+        } else {
+          console.error(`❌ [receipts] Settlement failed — manual intervention required`, JSON.stringify({
+            mockTradeId,
+            side: settlementPayload.side,
+            error: settlementResult.error,
+            txHash: tx_hash,
+            httpStatus: settlementRes.status,
+          }));
+        }
+      } catch (settlementErr) {
+        console.error(`❌ [receipts] Settlement failed — manual intervention required`, JSON.stringify({
+          mockTradeId,
+          side: settlementPayload.side,
+          error: settlementErr instanceof Error ? settlementErr.message : String(settlementErr),
+          txHash: tx_hash,
+        }));
+      }
+    } else {
+      console.warn(`⚠️ [receipts] No mockTradeId available — skipping settlement call`, JSON.stringify({
+        tradeId,
+        tx_hash: tx_hash?.substring(0, 16),
+      }));
+    }
   }
   
   // ============================================================================
