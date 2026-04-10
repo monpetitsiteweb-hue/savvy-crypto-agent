@@ -38,6 +38,67 @@ const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a
 
 // Batch RPC config
 const RPC_BATCH_SIZE = 50; // blocks per batch HTTP call
+const SEQUENTIAL_THROTTLE_MS = 100; // delay between sequential calls
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Fetch a single block with full transactions via individual RPC call.
+ */
+async function fetchBlockSingle(blockNum: number): Promise<any> {
+  const resp = await fetch(BASE_RPC_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_getBlockByNumber",
+      params: ["0x" + blockNum.toString(16), true],
+      id: 1,
+    }),
+  });
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  return json?.result ?? null;
+}
+
+/**
+ * Extract ETH transfers from a block result targeting botAddress.
+ */
+function extractEthTransfers(
+  blockResult: any,
+  blockNum: number,
+  botAddressLower: string
+): TransferEvent[] {
+  if (!blockResult?.transactions) return [];
+  const blockTimestamp = new Date(
+    parseInt(blockResult.timestamp, 16) * 1000
+  ).toISOString();
+  const found: TransferEvent[] = [];
+  for (const tx of blockResult.transactions) {
+    if (
+      tx.to &&
+      tx.to.toLowerCase() === botAddressLower &&
+      tx.value &&
+      tx.value !== "0x0"
+    ) {
+      const valueWei = BigInt(tx.value);
+      if (valueWei > 0n) {
+        found.push({
+          txHash: tx.hash,
+          blockNumber: blockNum,
+          blockTimestamp,
+          fromAddress: tx.from.toLowerCase(),
+          toAddress: botAddressLower,
+          amount: Number(valueWei) / 1e18,
+          amountRaw: valueWei.toString(),
+          asset: "ETH",
+          assetAddress: null,
+        });
+      }
+    }
+  }
+  return found;
+}
 
 interface TransferEvent {
   txHash: string;
