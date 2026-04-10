@@ -240,6 +240,15 @@ Deno.serve(async (req) => {
       blockNums.push(b);
     }
 
+    const includes44523165 = blockNums.includes(44523165);
+    logger.info("[deposit-watcher][DEBUG] Block list info", {
+      total_blocks_in_list: blockNums.length,
+      blockStep,
+      includes_44523165: includes44523165,
+      first_5: blockNums.slice(0, 5),
+      last_5: blockNums.slice(-5),
+    });
+
     // Process in batches — with automatic sequential fallback
     let usedSequentialFallback = false;
 
