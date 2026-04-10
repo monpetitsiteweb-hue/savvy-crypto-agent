@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useTestMode } from '@/hooks/useTradeViewFilter';
 import { formatEuro, formatPercentage, formatDuration } from '@/utils/currencyFormatter';
 
 interface PerformancePanelProps {
@@ -93,6 +94,8 @@ const MetricCard = ({
 
 export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
   const { user } = useAuth();
+  const { testMode } = useTestMode();
+  const isTestMode = testMode;
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
     totalTrades: 0,
     winningTrades: 0,
@@ -109,18 +112,21 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
     if (user && strategyId) {
       fetchPerformanceData();
     }
-  }, [user, strategyId]);
+  }, [user, strategyId, isTestMode]);
 
   const fetchPerformanceData = async () => {
     if (!user || !strategyId) return;
 
     try {
-      // Fetch mock trades for the strategy
+      // Fetch ONLY closed SELLs with realized P&L, filtered by mode
       const { data: trades, error } = await supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
-        .eq('strategy_id', strategyId);
+        .eq('strategy_id', strategyId)
+        .eq('is_test_mode', isTestMode)
+        .eq('trade_type', 'sell')
+        .not('profit_loss', 'is', null);
 
       if (error) throw error;
 
@@ -131,7 +137,7 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
         const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
         const totalProfitLoss = trades.reduce((sum, t) => sum + (t.profit_loss || 0), 0);
         const totalFees = trades.reduce((sum, t) => sum + (t.fees || 0), 0);
-        const avgTradeValue = totalTrades > 0 ? trades.reduce((sum, t) => sum + t.total_value, 0) / totalTrades : 0;
+        const avgTradeValue = totalTrades > 0 ? trades.reduce((sum, t) => sum + (t.total_value || 0), 0) / totalTrades : 0;
 
         setMetrics({
           totalTrades,

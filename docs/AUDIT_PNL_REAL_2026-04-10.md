@@ -168,18 +168,15 @@ Cela corrige le P&L affiché dans le dashboard unifié sans toucher aux colonnes
 
 ---
 
-## 5. Récapitulatif des trous
+## 5. Récapitulatif des trous — STATUT
 
-| # | Problème | Sévérité | Fix nécessaire |
-|---|----------|----------|---------------|
-| 1 | `get_portfolio_metrics.total_pnl_eur` ne déduit pas le gas | 🔴 | Modifier step 7 de la RPC |
-| 2 | `PerformancePanel` ne filtre pas `is_test_mode` | 🔴 | Ajouter `.eq('is_test_mode', ...)` |
-| 3 | `PerformancePanel` inclut BUY ouverts dans le comptage | 🟡 | Filtrer `trade_type = 'sell'` ou `profit_loss IS NOT NULL` |
-| 4 | `real_trade_history_view` n'expose pas le P&L | 🟡 | Joindre `mock_trades.profit_loss` si souhaité |
-| 5 | Pas de `profit_loss_net` nulle part | 🟡 | Option C (RPC) suffit pour le dashboard |
-| 6 | `avgTradeDuration` hardcodé à 2.5h | 🟠 | Calculer depuis `executed_at` des lots |
-| 7 | `portfolio_value` n'inclut pas la déduction gas | 🟡 | Débat : le gas est déjà sorti du cash, donc implicitement déduit du portfolio_value via `v_cash` |
-
-### Note sur le point 7
-
-Si le gas est payé en ETH natif (pas en EUR), il réduit le solde ETH du wallet mais **pas** `cash_balance_eur` dans `portfolio_capital`. Le `v_portfolio_value = v_cash + v_current_value` est donc correct **si** la valeur actuelle des positions inclut l'ETH restant après gas. Mais `mock_trades` ne track pas l'ETH dépensé en gas comme réduction de position — c'est un champ séparé (`gas_cost_eth`). **Il y a un risque de double-comptage ou de non-comptage selon le flow.**
+| # | Problème | Sévérité | Fix | Statut |
+|---|----------|----------|-----|--------|
+| 1 | `get_portfolio_metrics.total_pnl_eur` ne déduit pas le gas | 🔴 | Migration : `v_total_pnl := v_unrealized + v_realized - v_total_gas_eur` | ✅ APPLIQUÉ |
+| 2 | `PerformancePanel` ne filtre pas `is_test_mode` | 🔴 | `.eq('is_test_mode', isTestMode)` + filtre SELLs fermés | ✅ APPLIQUÉ |
+| 3 | `PerformancePanel` inclut BUY ouverts dans le comptage | 🟡 | `.eq('trade_type', 'sell').not('profit_loss', 'is', null)` | ✅ APPLIQUÉ |
+| 4 | `StrategyConfig` cards mélangent TEST/REAL | 🔴 | `.eq('is_test_mode', testMode)` + filtre SELLs fermés | ✅ APPLIQUÉ |
+| 5 | `real_trade_history_view` n'expose pas le P&L | 🟡 | Non traité — vue d'exécution, pas de P&L | ⏸️ DIFFÉRÉ |
+| 6 | Pas de `profit_loss_net` nulle part | 🟡 | Résolu via Option C (RPC déduit gas du total_pnl) | ✅ RÉSOLU |
+| 7 | `avgTradeDuration` hardcodé à 2.5h | 🟠 | Placeholder conservé | ⏸️ DIFFÉRÉ |
+| 8 | `portfolio_value` et gas ETH natif | 🟡 | Risque documenté, pas de fix immédiat | ⏸️ DIFFÉRÉ |
