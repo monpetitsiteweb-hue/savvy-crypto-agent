@@ -178,7 +178,6 @@ Logs ajoutés pour diagnostic dans `extractEthTransfers()` et la boucle principa
 | Réponse block_range → `toBlock` | ~626 | ✅ MODIFIÉ |
 | Attribution | 427-604 | ✅ |
 
-### Option A : Ajouter `to_block` explicite
 Permet de borner le range pour éviter un `totalBlocks` trop grand :
 ```typescript
 let explicitToBlock: number | null = null;
