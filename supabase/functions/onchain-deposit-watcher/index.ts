@@ -237,7 +237,7 @@ Deno.serve(async (req) => {
 
     // Build list of block numbers to scan
     const blockNums: number[] = [];
-    for (let b = fromBlock; b <= currentBlock; b += blockStep) {
+    for (let b = fromBlock; b <= toBlock; b += blockStep) {
       blockNums.push(b);
     }
 
@@ -343,7 +343,7 @@ Deno.serve(async (req) => {
         params: [
           {
             fromBlock: "0x" + fromBlock.toString(16),
-            toBlock: "0x" + currentBlock.toString(16),
+            toBlock: "0x" + toBlock.toString(16),
             address: [WETH_ADDRESS, USDC_ADDRESS],
             topics: [
               TRANSFER_TOPIC,
@@ -623,7 +623,7 @@ Deno.serve(async (req) => {
         unmatched,
         ambiguous,
         already_processed: alreadyProcessed,
-        block_range: { from: fromBlock, to: currentBlock },
+        block_range: { from: fromBlock, to: toBlock },
       },
       duration_ms: durationMs,
     });
