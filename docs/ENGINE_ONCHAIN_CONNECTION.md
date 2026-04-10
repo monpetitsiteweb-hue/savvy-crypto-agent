@@ -26,10 +26,26 @@ backend-shadow-engine (BACKEND_ENGINE_MODE=LIVE)
     │     └─ release_execution_lock (in finally)
     │
     ▼ onchain-sign-and-send
-       ├─ onchain-execute (mode=build, provider=0x, chain=Base 8453)
-       ├─ getSigner() → LocalSigner (BOT_PRIVATE_KEY)
-       ├─ signTransaction → eth_sendRawTransaction (RPC_URL_8453)
-       └─ Résultat: { ok, tx_hash, tradeId }
+    │  ├─ onchain-execute (mode=build, provider=0x, chain=Base 8453)
+    │  ├─ getSigner() → LocalSigner (BOT_PRIVATE_KEY)
+    │  ├─ signTransaction → eth_sendRawTransaction (RPC_URL_8453)
+    │  └─ fetch onchain-receipts (synchrone)
+    │
+    ▼ onchain-receipts
+    │  ├─ Poll tx receipt via RPC
+    │  ├─ Decode Transfer logs
+    │  ├─ UPDATE mock_trades (amount, price, execution_confirmed=true)
+    │  └─ fetch onchain-settlement (synchrone)  ← NOUVEAU
+    │
+    ▼ onchain-settlement                         ← NOUVEAU
+       ├─ Si BUY → RPC settle_buy_trade_v2
+       │   └─ cash_balance_eur -= totalValueEur, settlement_status='SETTLED'
+       └─ Si SELL → RPC settle_sell_trade_v2
+           ├─ FIFO matching des lots BUY ouverts
+           ├─ Fermeture lots (is_open_position=false, profit_loss, sell_price)
+           ├─ Split partiel si nécessaire (UPDATE + INSERT)
+           ├─ cash_balance_eur += proceeds
+           └─ settlement_status='SETTLED'
 ```
 
 ---
