@@ -1496,7 +1496,7 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
         .select('cryptocurrency, trade_type, amount, price, executed_at, id')
         .eq('user_id', userId)
         .eq('strategy_id', strategyId)
-        .eq('is_test_mode', true)
+        .eq('is_test_mode', BACKEND_ENGINE_MODE !== 'LIVE')
         .order('executed_at', { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
 
@@ -1623,7 +1623,7 @@ async function validateNetPosition(
       .select('trade_type, amount')
       .eq('user_id', userId)
       .eq('strategy_id', strategyId)
-      .eq('is_test_mode', true)
+      .eq('is_test_mode', BACKEND_ENGINE_MODE !== 'LIVE')
       .in('cryptocurrency', uniqueSymbols);
     
     if (error) {
