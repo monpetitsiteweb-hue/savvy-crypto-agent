@@ -9,6 +9,7 @@ import { TrendingUp, TrendingDown, Activity, DollarSign, Target, Brain, AlertCir
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatEuro, formatPercentage } from '@/utils/currencyFormatter';
+import { CanarySwapButton } from './CanarySwapButton';
 
 interface PerformanceData {
   recent_trades: Array<{
