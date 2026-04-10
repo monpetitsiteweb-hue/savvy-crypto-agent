@@ -3180,10 +3180,12 @@ serve(async (req) => {
         execClass_intent: execClass.intent,
       });
 
-      // For system_operator_mode: skip user wallet checks (uses SYSTEM wallet)
+      // For system_operator_mode OR automated intelligent trades: skip user wallet checks (uses SYSTEM wallet)
       // Phase 2: Deprecated check - now derived from execClass.isSystemOperator
-      if (isSystemOperatorMode) {
-        console.log("🔧 COORDINATOR: system_operator_mode - skipping user wallet prerequisite checks (uses SYSTEM wallet)");
+      const isAutomatedIntelligent = intent.source === "intelligent";
+      if (isSystemOperatorMode || isAutomatedIntelligent) {
+        const skipLabel = isSystemOperatorMode ? "system_operator_mode" : "automated_intelligent";
+        console.log(`🔧 COORDINATOR: ${skipLabel} - skipping user wallet prerequisite checks (uses SYSTEM wallet)`);
       } else {
         // Check live trading prerequisites via RPC (for regular manual trades)
         console.log("📋 COORDINATOR: Checking prerequisites...");
