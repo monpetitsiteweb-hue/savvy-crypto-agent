@@ -155,7 +155,8 @@ Deno.serve(async (req) => {
     // ──────────────────────────────────────────────
     logger.info("[deposit-watcher] Scanning for native ETH transfers (batched)...");
 
-    const blockStep = lookbackBlocks <= 1000 ? 1 : Math.max(1, Math.floor(lookbackBlocks / 200));
+    const totalBlocks = currentBlock - fromBlock;
+    const blockStep = totalBlocks <= 1000 ? 1 : Math.max(1, Math.floor(totalBlocks / 200));
 
     // Build list of block numbers to scan
     const blockNums: number[] = [];
