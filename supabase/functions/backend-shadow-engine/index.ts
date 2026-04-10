@@ -1497,6 +1497,7 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
         .eq('user_id', userId)
         .eq('strategy_id', strategyId)
         .eq('is_test_mode', BACKEND_ENGINE_MODE !== 'LIVE')
+        .eq('execution_confirmed', true)
         .order('executed_at', { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
 

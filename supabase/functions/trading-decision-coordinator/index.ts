@@ -3783,6 +3783,22 @@ serve(async (req) => {
         } catch (execError: any) {
           console.error("❌ COORDINATOR: AUTOMATED Execution error:", execError.message);
 
+          // P4: Cleanup ghost placeholder — mark as failed, preserve for audit
+          try {
+            await supabaseClient
+              .from('mock_trades')
+              .update({
+                execution_source: 'onchain_failed',
+                is_open_position: false,
+                notes: `FAILED: ${execError.message}`,
+              })
+              .eq('id', mockTradeId)
+              .eq('execution_confirmed', false);
+            console.log(`🧹 COORDINATOR: Ghost placeholder cleaned up: ${mockTradeId}`);
+          } catch (cleanupErr: any) {
+            console.error(`⚠️ COORDINATOR: Failed to cleanup ghost placeholder ${mockTradeId}:`, cleanupErr.message);
+          }
+
           const { data: _diAutoExecFail } = await supabaseClient.from("decision_events").insert({
             user_id: intent.userId,
             strategy_id: intent.strategyId,
@@ -6069,11 +6085,13 @@ async function detectConflicts(
     const maxExposurePerCoinEUR = maxWalletExposureEUR / maxActiveCoins;
 
     // Get ALL trades for this user/strategy (both buys AND sells) to calculate NET exposure
+    const canonicalIsTestMode = strategyConfig?.canonicalIsTestMode ?? true;
     const { data: allTrades, error: tradesQueryError } = await supabaseClient
       .from("mock_trades")
       .select("cryptocurrency, amount, price, trade_type")
       .eq("user_id", intent.userId)
       .eq("strategy_id", intent.strategyId)
+      .eq("is_test_mode", canonicalIsTestMode)
       .in("trade_type", ["buy", "sell"])
       .order("executed_at", { ascending: false });
 
@@ -6476,6 +6494,7 @@ async function detectConflicts(
       .select("*", { count: "exact", head: true })
       .eq("user_id", intent.userId)
       .eq("strategy_id", intent.strategyId)
+      .eq("is_test_mode", canonicalIsTestMode)
       .in("cryptocurrency", symbolVariants)
       .eq("trade_type", "buy")
       .eq("is_open_position", true);
