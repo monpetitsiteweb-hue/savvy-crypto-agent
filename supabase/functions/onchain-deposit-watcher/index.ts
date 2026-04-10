@@ -105,20 +105,19 @@ Deno.serve(async (req) => {
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Parse request body for optional parameters
-    let lookbackBlocks = 200; // Default: ~6 minutes on Base (reduced from 500)
+    let lookbackBlocks = 200; // Default: ~6 minutes on Base
+    let explicitFromBlock: number | null = null;
     try {
       const body = await req.json();
       if (body?.lookback_blocks && typeof body.lookback_blocks === "number") {
-        lookbackBlocks = Math.min(body.lookback_blocks, 1000); // Cap at 1000 blocks
+        lookbackBlocks = Math.min(body.lookback_blocks, 1000);
+      }
+      if (body?.from_block && typeof body.from_block === "number") {
+        explicitFromBlock = body.from_block;
       }
     } catch {
       // No body or invalid JSON - use defaults
     }
-
-    logger.info("[deposit-watcher] Starting scan", {
-      bot_address: botAddressLower.slice(0, 10) + "...",
-      lookback_blocks: lookbackBlocks,
-    });
 
     // Get current block number
     const blockNumResponse = await fetch(BASE_RPC_URL, {
@@ -134,7 +133,14 @@ Deno.serve(async (req) => {
 
     const blockNumResult = await blockNumResponse.json();
     const currentBlock = parseInt(blockNumResult.result, 16);
-    const fromBlock = currentBlock - lookbackBlocks;
+    const fromBlock = explicitFromBlock ?? (currentBlock - lookbackBlocks);
+
+    logger.info("[deposit-watcher] Starting scan", {
+      bot_address: botAddressLower.slice(0, 10) + "...",
+      from_block: fromBlock,
+      to_block: currentBlock,
+      explicit: !!explicitFromBlock,
+    });
 
     logger.info("[deposit-watcher] Block range", {
       from: fromBlock,
