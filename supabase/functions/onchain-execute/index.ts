@@ -225,7 +225,7 @@ async function runPreflight(
   // Check Permit2 allowance for the sell token
   // SKIP Permit2 preflight check if server-side signing is available (BOT_PK set)
   // The Permit2 will be auto-signed later in the flow
-  const serverSignerAvailable = !!Deno.env.get('BOT_PK');
+  const serverSignerAvailable = !!(Deno.env.get('BOT_PK') || Deno.env.get('BOT_PRIVATE_KEY'));
   if (serverSignerAvailable) {
     console.log(`Preflight: Skipping Permit2 check - server signer available (will auto-sign)`);
     return null; // All checks passed, Permit2 will be handled by auto-sign block
