@@ -535,7 +535,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         ok: true,
         mode: 'submit',
-        action: 'wrap',
+        action: 'wrapped',
         dryRun: false,
         txHash,
         gasUsed,

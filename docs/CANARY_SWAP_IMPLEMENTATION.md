@@ -26,6 +26,7 @@
 |-----|-------|-------|-------|
 | BOT_PK fallback | 228 | `Deno.env.get('BOT_PK')` | `Deno.env.get('BOT_PK') \|\| Deno.env.get('BOT_PRIVATE_KEY')` |
 | Skip Permit2 si ETH natif | 691-700 | `shouldAutoSignPermit2` sans check `tx.value` | Ajout `txValueIsZero` : si le quote 0x a `transaction.value > 0`, Permit2 est entièrement sauté |
+| **Fix contrat action wrap** | 539 (`wallet-ensure-weth`) | `action: 'wrap'` en réponse submit réussie | `action: 'wrapped'` — aligne avec le check `onchain-execute` ligne 212 qui attend `'wrapped'` pour continuer l'exécution |
 
 ## 3. Procédure d'exécution du Canary Swap
 
