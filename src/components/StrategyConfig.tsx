@@ -98,11 +98,15 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       const performanceMap: Record<string, StrategyPerformance> = {};
 
       for (const strategy of strategies) {
+        // Fetch ONLY closed SELLs with realized P&L, filtered by current mode
         const { data: trades, error } = await supabase
           .from('mock_trades')
           .select('*')
           .eq('user_id', user.id)
-          .eq('strategy_id', strategy.id);
+          .eq('strategy_id', strategy.id)
+          .eq('is_test_mode', testMode)
+          .eq('trade_type', 'sell')
+          .not('profit_loss', 'is', null);
 
         if (error) {
           logger.error(`Error fetching trades for strategy ${strategy.id}:`, error);
