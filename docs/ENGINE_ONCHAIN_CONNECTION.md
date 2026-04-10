@@ -34,23 +34,31 @@ backend-shadow-engine (BACKEND_ENGINE_MODE=LIVE)
 
 ---
 
-## 2. Fichier modifié
+## 2. Fichiers modifiés
 
 | Fichier | Lignes | Nature du changement |
 |---|---|---|
 | `supabase/functions/trading-decision-coordinator/index.ts` | L3183-3186 | Ajout `isAutomatedIntelligent` pour skip prerequisites |
 | | L3266-3271 | Wallet resolution : intelligent utilise SYSTEM_WALLET |
 | | L3570-3678 | **Remplacé** : insertion `execution_jobs` → appel synchrone `onchain-sign-and-send` avec lock + placeholder + error handling |
+| `supabase/functions/backend-shadow-engine/index.ts` | L1499 | `fetchOpenPositions()` lit maintenant `mock_trades.is_test_mode` dynamiquement selon `BACKEND_ENGINE_MODE` |
+| | L1626 | `validateNetPosition()` lit maintenant `mock_trades.is_test_mode` dynamiquement selon `BACKEND_ENGINE_MODE` |
 
 ## 3. Fichiers NON modifiés
 
 - `supabase/functions/onchain-sign-and-send/index.ts` — AUCUNE modification
 - `supabase/functions/onchain-execute/index.ts` — AUCUNE modification
-- `supabase/functions/backend-shadow-engine/index.ts` — AUCUNE modification (metadata fix séparé, voir CHANGELOG)
 - `supabase/functions/_shared/signer.ts` — AUCUNE modification
 - Chemin Manual Fast-Path (L3313-3568) — INTACT
 - Chemin System Operator (L2200-2500) — INTACT
 - Chemin MOCK — INTACT
+
+### Correctif critique LIVE
+
+Le backend engine calculait encore ses positions ouvertes et sa validation de position nette uniquement sur `mock_trades.is_test_mode = true`. En pratique, un BUY on-chain confirmé (`is_test_mode = false`) restait invisible pour l'engine, ce qui empêchait ensuite les SELL automatiques LIVE. Ce correctif aligne la lecture des positions sur le mode réel du moteur :
+
+- `BACKEND_ENGINE_MODE=SHADOW` → lecture des trades TEST (`is_test_mode = true`)
+- `BACKEND_ENGINE_MODE=LIVE` → lecture des trades REAL ledger (`is_test_mode = false`)
 
 ---
 
