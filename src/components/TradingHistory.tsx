@@ -168,13 +168,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       let gainLoss = pastPosition.realizedPnL;
       let gainLossPercentage = pastPosition.realizedPnLPct;
       
-      // Only compute if DB values missing (legacy data)
-      if (gainLoss === null && pastPosition.exitValue !== null && pastPosition.purchaseValue !== null) {
-        gainLoss = pastPosition.exitValue - pastPosition.purchaseValue;
-      }
-      if (gainLossPercentage === null && gainLoss !== null && pastPosition.purchaseValue !== null && pastPosition.purchaseValue > 0) {
-        gainLossPercentage = (gainLoss / pastPosition.purchaseValue) * 100;
-      }
+      // No fallback: if realized_pnl is null in DB, display null (not a fabricated value)
       
       return {
         currentPrice: pastPosition.exitPrice,

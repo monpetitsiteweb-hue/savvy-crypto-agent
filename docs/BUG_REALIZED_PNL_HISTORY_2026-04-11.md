@@ -2,7 +2,7 @@
 
 **Date** : 2026-04-11  
 **Sévérité** : 🔴 CRITIQUE (affichage financier faux)  
-**Statut** : Diagnostiqué — non corrigé
+**Statut** : ✅ CORRIGÉ — 2026-04-11
 
 ---
 
