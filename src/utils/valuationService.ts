@@ -74,8 +74,8 @@ export function processPastPosition(snapshot: {
     entryPrice: snapshot.original_purchase_price || null,
     exitPrice: snapshot.price || null,
     exitValue: snapshot.exit_value || null,
-    realizedPnL: snapshot.realized_pnl || null,
-    realizedPnLPct: snapshot.realized_pnl_pct || null
+    realizedPnL: snapshot.realized_pnl ?? null,
+    realizedPnLPct: snapshot.realized_pnl_pct ?? null
   };
 }
 
