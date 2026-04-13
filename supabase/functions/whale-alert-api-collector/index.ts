@@ -39,6 +39,18 @@ serve(async (req) => {
 
     let totalSignalsCreated = 0;
 
+    // Resolve a fallback user_id for sources without one
+    let fallbackUserId: string | null = null;
+    {
+      const { data: anySource } = await supabaseClient
+        .from('ai_data_sources')
+        .select('user_id')
+        .not('user_id', 'is', null)
+        .limit(1)
+        .single();
+      fallbackUserId = anySource?.user_id ?? null;
+    }
+
     for (const source of sources) {
       const apiKey = source.configuration?.api_key;
       if (!apiKey || apiKey === 'demo_key') {
@@ -46,8 +58,14 @@ serve(async (req) => {
         continue;
       }
 
-      const thresholdUsd = source.threshold_amount || 50000;
-      const blockchains = source.configuration?.blockchain_filter || ['ethereum', 'bitcoin'];
+      const effectiveUserId = source.user_id || fallbackUserId;
+      if (!effectiveUserId) {
+        console.log(`⚠️ Skipping source ${source.id}: no user_id available`);
+        continue;
+      }
+
+      const thresholdUsd = Math.max(source.threshold_amount || 100000, 100000); // Whale Alert Developer plan minimum
+      const blockchains = source.configuration?.blockchain_filter || ['ethereum', 'bitcoin', 'tron', 'ripple', 'solana'];
 
       console.log(`🔍 Fetching whale transactions from Whale Alert API (threshold: $${thresholdUsd})`);
 
@@ -106,7 +124,7 @@ serve(async (req) => {
         // Insert into live_signals (not whale_signal_events)
         const signal = {
           source_id: source.id,
-          user_id: source.user_id,
+          user_id: effectiveUserId,
           timestamp: new Date(tx.timestamp * 1000).toISOString(),
           symbol: normalizedSymbol,
           signal_type: signalType,
