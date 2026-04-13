@@ -53,7 +53,8 @@ serve(async (req) => {
 
       // Fetch recent transactions from Whale Alert API
       // API docs: https://docs.whale-alert.io/
-      const url = `https://api.whale-alert.io/v1/transactions?api_key=${apiKey}&min_value=${thresholdUsd}&limit=100`;
+      const startTime = Math.floor(Date.now() / 1000) - 3600; // NOW - 1 hour
+      const url = `https://api.whale-alert.io/v1/transactions?api_key=${apiKey}&min_value=${thresholdUsd}&start=${startTime}&limit=100`;
       
       const response = await fetch(url);
       if (!response.ok) {
