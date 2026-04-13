@@ -39,10 +39,28 @@ serve(async (req) => {
 
     let totalSignalsCreated = 0;
 
+    // Resolve a fallback user_id for sources without one
+    let fallbackUserId: string | null = null;
+    {
+      const { data: anySource } = await supabaseClient
+        .from('ai_data_sources')
+        .select('user_id')
+        .not('user_id', 'is', null)
+        .limit(1)
+        .single();
+      fallbackUserId = anySource?.user_id ?? null;
+    }
+
     for (const source of sources) {
       const apiKey = source.configuration?.api_key;
       if (!apiKey || apiKey === 'demo_key') {
         console.log(`⚠️ Skipping source ${source.id}: invalid or demo API key`);
+        continue;
+      }
+
+      const effectiveUserId = source.user_id || fallbackUserId;
+      if (!effectiveUserId) {
+        console.log(`⚠️ Skipping source ${source.id}: no user_id available`);
         continue;
       }
 
