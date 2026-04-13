@@ -46,7 +46,7 @@ serve(async (req) => {
         continue;
       }
 
-      const thresholdUsd = source.threshold_amount || 50000;
+      const thresholdUsd = Math.max(source.threshold_amount || 100000, 100000); // Whale Alert Developer plan minimum
       const blockchains = source.configuration?.blockchain_filter || ['ethereum', 'bitcoin'];
 
       console.log(`🔍 Fetching whale transactions from Whale Alert API (threshold: $${thresholdUsd})`);
