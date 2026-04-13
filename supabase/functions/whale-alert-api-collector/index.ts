@@ -124,7 +124,7 @@ serve(async (req) => {
         // Insert into live_signals (not whale_signal_events)
         const signal = {
           source_id: source.id,
-          user_id: source.user_id,
+          user_id: effectiveUserId,
           timestamp: new Date(tx.timestamp * 1000).toISOString(),
           symbol: normalizedSymbol,
           signal_type: signalType,
