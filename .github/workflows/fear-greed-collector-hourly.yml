@@ -19,9 +19,9 @@ jobs:
             "https://fuieplftlcxdfkxyqzlt.supabase.co/functions/v1/external-data-collector" \
             -H "Content-Type: application/json" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            -d '{
+             -d '{
               "action": "sync_source",
-              "sourceId": "fff8a815-7d92-4111-a58c-6e595e81f088"
+              "sourceId": "dc54fbfe-a23b-4559-b15f-6d15b719a797"
             }')
           
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
