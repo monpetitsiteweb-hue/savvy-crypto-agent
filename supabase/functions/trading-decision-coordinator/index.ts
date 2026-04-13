@@ -214,7 +214,7 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
     const { data: signals, error: signalsError } = await supabaseClient
       .from("live_signals")
       .select("id, signal_type, source, signal_strength, timestamp, symbol")
-      .in("symbol", [symbol, "ALL"])
+      .in("symbol", [symbol, `${symbol}-EUR`, "ALL"])
       .gte("timestamp", cutoffTime)
       .order("timestamp", { ascending: false });
 
