@@ -1199,10 +1199,53 @@ serve(async (req) => {
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
 
-          // ============= ML SHADOW: EDA v1 (observation only) =============
+          // ============= ML FILTER: Entry gate (blocks BUY if model says no) =============
           let mlShadow: EdaShadowResult | null = null;
           if (SHADOW_ML_ENABLED) {
             mlShadow = await computeEdaShadow(supabaseClient, symbol);
+          }
+
+          // ML gate: block BUY if would_filter=true AND no error (fail-open)
+          if (mlShadow && !mlShadow.error && mlShadow.would_filter) {
+            console.log(
+              `[ML_FILTER] ${symbol}: blocked (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
+            );
+            allDecisions.push({
+              symbol: baseSymbol,
+              side: 'HOLD',
+              action: 'HOLD',
+              reason: 'ml_filter_blocked',
+              confidence: 0,
+              fusionScore: null,
+              wouldExecute: false,
+              timestamp: new Date().toISOString(),
+              metadata: {
+                strategyId: strategy.id,
+                strategyName: strategy.strategy_name,
+                price: currentPrice,
+                intent_side: 'BUY',
+                execution_status: 'BLOCKED',
+                execution_reason: 'ml_filter_blocked',
+                snapshot_type: 'ENTRY',
+                ml_shadow: mlShadow,
+              }
+            });
+
+            // Still merge ml_shadow into snapshot for observability
+            if (strategy?.id) {
+              try {
+                await mergeMlShadowIntoSnapshot(supabaseClient, userId, strategy.id, baseSymbol, mlShadow);
+              } catch (mergeErr: any) {
+                console.warn(`[ml_shadow] ${baseSymbol}: merge failed (non-fatal): ${mergeErr?.message || mergeErr}`);
+              }
+            }
+            continue;
+          }
+
+          if (mlShadow && !mlShadow.error) {
+            console.log(
+              `[ML_FILTER] ${symbol}: allowed (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
+            );
           }
 
           const backendRequestId = crypto.randomUUID();
