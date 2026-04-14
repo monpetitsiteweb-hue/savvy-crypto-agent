@@ -29,21 +29,31 @@ const RAW_ENGINE_MODE = Deno.env.get('BACKEND_ENGINE_MODE');
 const BACKEND_ENGINE_MODE: EngineMode = 
   (RAW_ENGINE_MODE as EngineMode) || 'SHADOW';
 
-// ============= SHADOW ML (EDA v1) =============
+// ============= SHADOW ML (Railway /predict service) =============
 const SHADOW_ML_ENABLED = (Deno.env.get('SHADOW_ML_ENABLED') ?? 'true') === 'true';
+const ML_SERVICE_URL = (Deno.env.get('ML_SERVICE_URL') ?? 'https://savvy-crypto-ml-production.up.railway.app').replace(/\/+$/, '');
+
+interface MlPredictResponse {
+  stoch_k?: number | null;
+  rsi14?: number | null;
+  eda_signal?: boolean | null;
+  would_filter?: boolean | null;
+  ensemble_prob?: number | null;
+  signal?: string | null;
+}
 
 interface EdaShadowResult {
-  model: string;
   stoch_k: number | null;
   rsi14: number | null;
   eda_signal: boolean;
   would_filter: boolean;
-  candle_count: number;
+  ensemble_prob: number | null;
+  signal: string | null;
   error?: string;
 }
 
 /**
- * Compute Stochastic K(14) from 5m OHLCV candles + fetch RSI(14) from features.
+ * Fetch the latest 300 candles and delegate ml_shadow scoring to the Railway ML service.
  * Pure observation — never blocks trades.
  */
 async function computeEdaShadow(
@@ -51,76 +61,93 @@ async function computeEdaShadow(
   symbol: string // e.g. "BTC-EUR"
 ): Promise<EdaShadowResult> {
   const fallback: EdaShadowResult = {
-    model: 'eda_v1',
     stoch_k: null,
     rsi14: null,
     eda_signal: false,
     would_filter: false,
-    candle_count: 0,
+    ensemble_prob: null,
+    signal: null,
   };
 
   try {
-    // Fetch last 14 candles (5m) and latest RSI in parallel
-    const [candlesRes, featuresRes] = await Promise.all([
-      supabaseClient
-        .from('market_ohlcv_raw')
-        .select('high, low, close, ts_utc')
-        .eq('symbol', symbol)
-        .eq('granularity', '5m')
-        .order('ts_utc', { ascending: false })
-        .limit(14),
-      supabaseClient
-        .from('market_features_v0')
-        .select('rsi_14, ts_utc')
-        .eq('symbol', symbol)
-        .eq('granularity', '5m')
-        .order('ts_utc', { ascending: false })
-        .limit(1)
-        .single(),
-    ]);
+    const { data: candles, error: candlesError } = await supabaseClient
+      .from('market_ohlcv_raw')
+      .select('ts_utc, open, high, low, close, volume')
+      .eq('symbol', symbol)
+      .eq('granularity', '5m')
+      .order('ts_utc', { ascending: false })
+      .limit(300);
 
-    const candles = candlesRes.data;
-    const candleCount = candles?.length ?? 0;
-
-    if (!candles || candleCount < 14) {
-      console.log(`[ml_shadow] ${symbol}: insufficient candles (${candleCount}/14)`);
-      return { ...fallback, candle_count: candleCount };
+    if (candlesError) {
+      throw new Error(`candle fetch failed: ${candlesError.message}`);
     }
 
-    const highs = candles.map((c: any) => Number(c.high));
-    const lows = candles.map((c: any) => Number(c.low));
-    const close = Number(candles[0].close); // most recent
-    const highestHigh = Math.max(...highs);
-    const lowestLow = Math.min(...lows);
+    const candleCount = candles?.length ?? 0;
+    if (!candles || candleCount < 300) {
+      console.log(`[ml_shadow] ${symbol}: insufficient candles (${candleCount}/300)`);
+      return { ...fallback, error: `insufficient candles (${candleCount}/300)` };
+    }
 
-    const stochK = highestHigh === lowestLow
-      ? 50 // avoid division by zero
-      : ((close - lowestLow) / (highestHigh - lowestLow)) * 100;
+    const payload = {
+      symbol,
+      candles: [...candles].reverse().map((c: any) => ({
+        candle_time: c.ts_utc,
+        open_price: Number(c.open),
+        high_price: Number(c.high),
+        low_price: Number(c.low),
+        close_price: Number(c.close),
+        volume: c.volume != null ? Number(c.volume) : 0,
+      })),
+    };
 
-    const rsi14 = featuresRes.data?.rsi_14 != null
-      ? Number(featuresRes.data.rsi_14)
-      : null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const edaSignal = rsi14 != null && stochK < 10 && rsi14 < 30;
-    // would_filter = true means this trade WOULD have been blocked (signal is OFF)
-    const wouldFilter = !edaSignal;
+    let response: Response;
+    try {
+      response = await fetch(`${ML_SERVICE_URL}/predict`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`ML service ${response.status}: ${errorText.slice(0, 300)}`);
+    }
+
+    const result = await response.json() as MlPredictResponse;
+    const mapped: EdaShadowResult = {
+      stoch_k: result.stoch_k != null ? Number(result.stoch_k) : null,
+      rsi14: result.rsi14 != null ? Number(result.rsi14) : null,
+      eda_signal: typeof result.eda_signal === 'boolean' ? result.eda_signal : false,
+      would_filter: typeof result.would_filter === 'boolean'
+        ? result.would_filter
+        : !(typeof result.eda_signal === 'boolean' ? result.eda_signal : false),
+      ensemble_prob: result.ensemble_prob != null ? Number(result.ensemble_prob) : null,
+      signal: result.signal != null ? String(result.signal) : null,
+    };
 
     console.log(
-      `[ml_shadow] ${symbol}: stochK=${stochK.toFixed(1)} rsi14=${rsi14?.toFixed(1) ?? 'null'} ` +
-      `eda_signal=${edaSignal} would_filter=${wouldFilter}`
+      `[ml_shadow] ${symbol}: stochK=${mapped.stoch_k?.toFixed(1) ?? 'null'} ` +
+      `rsi14=${mapped.rsi14?.toFixed(1) ?? 'null'} ` +
+      `eda_signal=${mapped.eda_signal} would_filter=${mapped.would_filter} ` +
+      `ensemble_prob=${mapped.ensemble_prob?.toFixed(4) ?? 'null'} signal=${mapped.signal ?? 'null'}`
     );
 
-    return {
-      model: 'eda_v1',
-      stoch_k: Number(stochK.toFixed(2)),
-      rsi14: rsi14 != null ? Number(rsi14.toFixed(2)) : null,
-      eda_signal: edaSignal,
-      would_filter: wouldFilter,
-      candle_count: candleCount,
-    };
+    return mapped;
   } catch (err: any) {
-    console.error(`[ml_shadow] ${symbol}: error:`, err?.message || err);
-    return { ...fallback, error: err?.message || 'unknown' };
+    const message = err?.name === 'AbortError'
+      ? 'ML service timeout after 5000ms'
+      : err?.message || 'unknown';
+    console.error(`[ml_shadow] ${symbol}: error:`, message);
+    return { ...fallback, error: message };
   }
 }
 
@@ -1472,12 +1499,13 @@ serve(async (req) => {
     });
 
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`🌑 ${BACKEND_ENGINE_MODE}: Fatal error:`, error);
     return new Response(JSON.stringify({ 
       shadow: true,
       mode: BACKEND_ENGINE_MODE,
       effectiveShadowMode: true,
-      error: error.message,
+      error: errorMessage,
       elapsed_ms: Date.now() - startTime
     }), {
       status: 500,
