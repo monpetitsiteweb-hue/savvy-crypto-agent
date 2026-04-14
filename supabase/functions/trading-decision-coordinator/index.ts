@@ -125,6 +125,7 @@ const SOURCE_AGGREGATION_STRATEGY: Record<string, AggregationStrategy> = {
   technical_analysis: "average",
   crypto_news: "average",
   whale_alert_ws: "max",
+  whale_alert_api: "max",
   fear_greed_index: "latest",
   eodhd: "latest",
 };
