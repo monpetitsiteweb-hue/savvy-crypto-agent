@@ -434,6 +434,37 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     }
   }
 
+  // 5. Mean Reversion Composite Signal
+  // Detect: RSI oversold (bullish) + MA cross bearish (downtrend) = dip-buying opportunity
+  const hasRsiOversold = signals.find(s => s.signal_type === 'rsi_oversold_bullish');
+  const hasMaBearish = signals.find(s => s.signal_type === 'ma_cross_bearish');
+
+  if (hasRsiOversold && hasMaBearish) {
+    const compositeStrength = (hasRsiOversold.signal_strength + hasMaBearish.signal_strength) / 2;
+    console.log(`🔄 ${symbol} MEAN REVERSION detected: RSI oversold (${hasRsiOversold.signal_strength.toFixed(1)}) + MA bearish (${hasMaBearish.signal_strength.toFixed(1)}) → composite ${compositeStrength.toFixed(1)}`);
+
+    signals.push({
+      source_id: sourceId,
+      user_id: userId,
+      timestamp: new Date().toISOString(),
+      symbol: baseSymbol,
+      signal_type: 'mean_reversion_bullish',
+      signal_strength: compositeStrength,
+      source: 'technical_analysis',
+      data: {
+        rsi_value: hasRsiOversold.data?.rsi_value,
+        rsi_strength: hasRsiOversold.signal_strength,
+        ma_bearish_strength: hasMaBearish.signal_strength,
+        ema_short: hasMaBearish.data?.ema_short,
+        ema_long: hasMaBearish.data?.ema_long,
+        current_price: latest.close_price,
+        indicator: 'mean_reversion',
+        composite_of: ['rsi_oversold_bullish', 'ma_cross_bearish']
+      },
+      processed: false
+    });
+  }
+
   console.log(`✨ Generated ${signals.length} technical signals for ${symbol}`);
   return signals;
 }
