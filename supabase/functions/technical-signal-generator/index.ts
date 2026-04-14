@@ -200,31 +200,54 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
 
   console.log(`🔬 Calculating indicators for ${symbol}: Latest=${latest.close_price}, Previous=${previous.close_price}`);
 
-  // 1. Price Change Analysis
-  const shortTermChange = ((latest.close_price - previous.close_price) / previous.close_price) * 100;
-  const longerTermChange = ((latest.close_price - earlier.close_price) / earlier.close_price) * 100;
+  // 1. Price Change Analysis — Multi-window breakout detection (FIX 1)
+  // Window 1: 5min (N vs N-1), threshold 0.5%
+  const change5m = ((latest.close_price - previous.close_price) / previous.close_price) * 100;
+  
+  // Window 2: 1h (~12 candles of 5min), threshold 1.0%
+  const idx1h = Math.max(0, priceData.length - 12);
+  const price1hAgo = priceData[idx1h].close_price;
+  const change1h = ((latest.close_price - price1hAgo) / price1hAgo) * 100;
+  
+  // Window 3: 4h (full buffer), threshold 3.0%
+  const change4h = ((latest.close_price - earlier.close_price) / earlier.close_price) * 100;
 
-  console.log(`📊 ${symbol} - Short-term: ${shortTermChange.toFixed(2)}%, Longer-term: ${longerTermChange.toFixed(2)}%`);
+  console.log(`📊 ${symbol} - 5m: ${change5m.toFixed(2)}%, 1h: ${change1h.toFixed(2)}%, 4h: ${change4h.toFixed(2)}%`);
 
-  // Generate price movement signals (lower threshold for more signals)
-  if (Math.abs(shortTermChange) > 0.5) { // 0.5% threshold
-    const signalType = shortTermChange > 0 ? 'price_breakout_bullish' : 'price_breakout_bearish';
-    const strength = Math.min(100, Math.abs(shortTermChange) * 40);
+  // Trigger if ANY window exceeds its threshold
+  const breakoutWindows = [
+    { window: '5m',  change: change5m,  threshold: 0.5 },
+    { window: '1h',  change: change1h,  threshold: 1.0 },
+    { window: '4h',  change: change4h,  threshold: 3.0 },
+  ];
+
+  const triggeredWindows = breakoutWindows.filter(w => Math.abs(w.change) > w.threshold);
+
+  if (triggeredWindows.length > 0) {
+    // Use the dominant change (largest absolute move) for direction & strength
+    const dominant = triggeredWindows.reduce((a, b) => Math.abs(a.change) > Math.abs(b.change) ? a : b);
+    const signalType = dominant.change > 0 ? 'price_breakout_bullish' : 'price_breakout_bearish';
+    const strength = Math.min(100, Math.abs(dominant.change) * 20); // ×20 multiplier
+
+    console.log(`🚀 ${symbol} BREAKOUT via ${dominant.window}: ${dominant.change.toFixed(2)}% (threshold ${dominant.threshold}%)`);
 
     signals.push({
       source_id: sourceId,
-      user_id: userId, // NULL for system-wide
+      user_id: userId,
       timestamp: new Date().toISOString(),
       symbol: baseSymbol,
       signal_type: signalType,
       signal_strength: strength,
       source: 'technical_analysis',
       data: {
-        price_change_short: shortTermChange,
-        price_change_longer: longerTermChange,
+        change_5m: change5m,
+        change_1h: change1h,
+        change_4h: change4h,
+        dominant_window: dominant.window,
+        dominant_change: dominant.change,
         current_price: latest.close_price,
         indicator: 'price_movement',
-        threshold_triggered: '0.5%'
+        triggered_windows: triggeredWindows.map(w => `${w.window}:${w.change.toFixed(2)}%`).join(', ')
       },
       processed: false
     });
