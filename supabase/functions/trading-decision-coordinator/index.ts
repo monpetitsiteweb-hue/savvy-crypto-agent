@@ -294,22 +294,12 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
       });
     }
 
-    // === FIX 3: Minimum signal diversity check ===
+    // === FIX 2: Diversity penalty (replaces hard gate) ===
     const uniqueSources = new Set(processedSignals.map(ps => ps.signal.source));
-    if (uniqueSources.size < MIN_UNIQUE_SOURCES) {
-      console.log(`[SignalFusion] ${symbol}: insufficient diversity (${uniqueSources.size} sources < ${MIN_UNIQUE_SOURCES})`);
-      return {
-        fusedScore: 0,
-        details,
-        totalSignals: rawCount,
-        enabledSignals: processedSignals.length,
-        signals_used: signalsUsed,
-        source_contributions: {},
-        fusion_version: FUSION_VERSION,
-        insufficient_diversity: true,
-        unique_sources_count: uniqueSources.size,
-        deduplicated_signal_count: dedupedSignals.length,
-      };
+    const SINGLE_SOURCE_PENALTY = 0.5;
+    const hasDiversityPenalty = uniqueSources.size < MIN_UNIQUE_SOURCES;
+    if (hasDiversityPenalty) {
+      console.log(`[SignalFusion] ${symbol}: low diversity (${uniqueSources.size} source(s) < ${MIN_UNIQUE_SOURCES}), applying ${SINGLE_SOURCE_PENALTY}x penalty instead of blocking`);
     }
 
     // === FIX 2: Per-source contribution cap ===
