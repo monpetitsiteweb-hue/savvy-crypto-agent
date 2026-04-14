@@ -114,6 +114,7 @@ function getDirectionMultiplier(directionHint: string): number {
       return -1;
     case "symmetric":
     case "contextual":
+      return 0;  // No directional contribution — neutral signals
     default:
       return 1;
   }
