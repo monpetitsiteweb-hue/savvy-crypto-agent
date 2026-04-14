@@ -336,7 +336,7 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
           current_volume: latest.volume,
           average_volume: avgVolume,
           volume_ratio: volumeRatio,
-          price_change: shortTermChange,
+          price_change: change5m,
           indicator: 'volume'
         },
         processed: false
