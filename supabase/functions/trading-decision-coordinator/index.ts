@@ -122,7 +122,7 @@ function getDirectionMultiplier(directionHint: string): number {
 // Source aggregation strategies per source type
 type AggregationStrategy = "average" | "max" | "latest";
 const SOURCE_AGGREGATION_STRATEGY: Record<string, AggregationStrategy> = {
-  technical_analysis: "average",
+  technical_analysis: "max",
   crypto_news: "average",
   whale_alert_ws: "max",
   whale_alert_api: "max",
