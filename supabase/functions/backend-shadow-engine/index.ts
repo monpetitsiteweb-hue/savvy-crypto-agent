@@ -1499,12 +1499,13 @@ serve(async (req) => {
     });
 
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`🌑 ${BACKEND_ENGINE_MODE}: Fatal error:`, error);
     return new Response(JSON.stringify({ 
       shadow: true,
       mode: BACKEND_ENGINE_MODE,
       effectiveShadowMode: true,
-      error: error.message,
+      error: errorMessage,
       elapsed_ms: Date.now() - startTime
     }), {
       status: 500,
