@@ -402,8 +402,15 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
     }
     
     // Add trend signal based on price vs longer EMA
+    // FIX 3: Directional consistency — only emit trend signals coherent with MA cross
     const trendStrength = ((currentPrice - ema21) / ema21) * 100;
-    if (Math.abs(trendStrength) > 0.1) {
+    const emaBullish = ema9 > ema21;
+    const emaBearish = ema9 < ema21;
+    const trendCoherent = 
+      (emaBullish && trendStrength > 0.1) ||   // bullish cross + bullish trend = OK
+      (emaBearish && trendStrength < -0.1);     // bearish cross + bearish trend = OK
+
+    if (trendCoherent) {
       signals.push({
         source_id: sourceId,
         user_id: userId,
@@ -416,10 +423,14 @@ async function generateTechnicalSignals(symbol: string, priceData: any[], userId
           trend_strength: trendStrength,
           current_price: currentPrice,
           ema_reference: ema21,
-          indicator: 'trend'
+          indicator: 'trend',
+          directional_filter: 'coherent_with_ma_cross'
         },
         processed: false
       });
+      console.log(`📊 ${symbol} Trend signal COHERENT: ${trendStrength > 0 ? 'bullish' : 'bearish'} (strength: ${Math.abs(trendStrength).toFixed(2)}%)`);
+    } else if (Math.abs(trendStrength) > 0.1) {
+      console.log(`⚠️ ${symbol} Trend signal SUPPRESSED: trend=${trendStrength > 0 ? 'bullish' : 'bearish'} contradicts MA cross=${emaBullish ? 'bullish' : 'bearish'}`);
     }
   }
 
