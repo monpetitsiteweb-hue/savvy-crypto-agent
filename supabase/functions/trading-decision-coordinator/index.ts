@@ -344,7 +344,14 @@ async function computeFusedSignalScore(params: ComputeFusedSignalParams): Promis
     const direction = bullishTotal >= bearishTotal ? 1 : -1;
     const convictionScore = direction * dominance * magnitude;
 
-    const fusedScore = Math.max(-100, Math.min(100, convictionScore * 100));
+    let fusedScore = Math.max(-100, Math.min(100, convictionScore * 100));
+
+    // Apply diversity penalty if only 1 source (FIX 2)
+    if (hasDiversityPenalty) {
+      const originalScore = fusedScore;
+      fusedScore = Math.round(fusedScore * SINGLE_SOURCE_PENALTY);
+      console.log(`[SignalFusion] ${symbol}: diversity penalty applied: ${originalScore.toFixed(2)} → ${fusedScore}`);
+    }
 
     console.log(
       `[SignalFusion] ${FUSION_VERSION} score for ${symbol}/${horizon}: ${fusedScore.toFixed(2)} from ${processedSignals.length} signals (${uniqueSources.size} sources, deduped ${rawCount}→${dedupedSignals.length})`,
