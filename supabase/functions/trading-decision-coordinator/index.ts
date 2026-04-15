@@ -4071,8 +4071,14 @@ serve(async (req) => {
     };
     console.log(`[COORD] unifiedConfig resolved: enableUnifiedDecisions=${unifiedConfig.enableUnifiedDecisions} (source=${strategy.configuration?.unifiedConfig ? 'configuration.unifiedConfig' : 'default_fallback'})`);
 
+    // ============= ML BYPASS: skip fusion & confidence gates for ML-driven intents =============
+    const isMlSignalBuy = intent.reason === 'ml_signal_buy';
+    if (isMlSignalBuy) {
+      console.log(`[ML_BYPASS] ${intent.symbol}: skipping fusion gate & confidence gate (reason=ml_signal_buy, confidence=${intent.confidence})`);
+    }
+
     // ============= FUSION THRESHOLD + CONFIDENCE (fusion already computed above) =============
-    if (intent.side === 'BUY' && precomputedFusionData) {
+    if (intent.side === 'BUY' && precomputedFusionData && !isMlSignalBuy) {
       // THRESHOLD GOVERNANCE: Check if fusion meets entry threshold
       const rawEnterThreshold = strategy.configuration?.signalFusion?.enterThreshold;
       if (rawEnterThreshold !== undefined && rawEnterThreshold !== null) {
@@ -4324,9 +4330,9 @@ serve(async (req) => {
       optimizer: confidenceConfig.optimizer,
     });
 
-    // Apply confidence gate (unless confidence is null)
+    // Apply confidence gate (unless confidence is null or ML bypass)
     try {
-      if (effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
+      if (!isMlSignalBuy && effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
         console.log("[coordinator] 🚫 Decision blocked by confidence gate", {
           symbol: intent.symbol,
           side: intent.side,
