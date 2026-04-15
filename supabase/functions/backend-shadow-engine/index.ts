@@ -1199,58 +1199,178 @@ serve(async (req) => {
           const tradeAllocation = config.perTradeAllocation || 50;
           const qtySuggested = tradeAllocation / currentPrice;
 
-          // ============= ML FILTER: Entry gate (blocks BUY if model says no) =============
+          // ============= ML DECISION ENGINE: ML is the sole BUY authority =============
           let mlShadow: EdaShadowResult | null = null;
           if (SHADOW_ML_ENABLED) {
             mlShadow = await computeEdaShadow(supabaseClient, symbol);
           }
 
-          // ML gate: block BUY if would_filter=true AND no error (fail-open)
-          if (mlShadow && !mlShadow.error && mlShadow.would_filter) {
-            console.log(
-              `[ML_FILTER] ${symbol}: blocked (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
-            );
-            allDecisions.push({
-              symbol: baseSymbol,
-              side: 'HOLD',
-              action: 'HOLD',
-              reason: 'ml_filter_blocked',
-              confidence: 0,
-              fusionScore: null,
-              wouldExecute: false,
-              timestamp: new Date().toISOString(),
-              metadata: {
-                strategyId: strategy.id,
-                strategyName: strategy.strategy_name,
-                price: currentPrice,
-                intent_side: 'BUY',
-                execution_status: 'BLOCKED',
-                execution_reason: 'ml_filter_blocked',
-                snapshot_type: 'ENTRY',
-                ml_shadow: mlShadow,
-              }
-            });
-
-            // Still merge ml_shadow into snapshot for observability
-            if (strategy?.id) {
-              try {
-                await mergeMlShadowIntoSnapshot(supabaseClient, userId, strategy.id, baseSymbol, mlShadow);
-              } catch (mergeErr: any) {
-                console.warn(`[ml_shadow] ${baseSymbol}: merge failed (non-fatal): ${mergeErr?.message || mergeErr}`);
-              }
-            }
-            continue;
-          }
-
-          if (mlShadow && !mlShadow.error) {
-            console.log(
-              `[ML_FILTER] ${symbol}: allowed (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
-            );
-          }
-
           const backendRequestId = crypto.randomUUID();
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
+
+          // ML decision: signal=true → BUY, signal=false → HOLD
+          // If ML service is down (error/fallback) → fall through to coordinator as safety net
+          if (mlShadow && !mlShadow.error) {
+            const mlSignalBuy = mlShadow.signal === 'true' || mlShadow.signal === true;
+
+            if (mlSignalBuy) {
+              // ===== ML SIGNAL BUY: bypass coordinator entirely =====
+              console.log(
+                `[ML_FILTER] ${symbol}: BUY signal (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
+              );
+
+              const intent = {
+                userId,
+                strategyId: strategy.id,
+                symbol: baseSymbol,
+                side: 'BUY' as const,
+                source: 'intelligent' as const,
+                confidence: mlShadow.ensemble_prob ?? 0.97,
+                reason: 'ml_signal_buy',
+                qtySuggested,
+                metadata: {
+                  mode: strategyIsTestMode ? 'mock' : 'live',
+                  engine: 'intelligent',
+                  is_test_mode: strategyIsTestMode,
+                  context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+                  backend_ts: new Date().toISOString(),
+                  currentPrice,
+                  backend_request_id: backendRequestId,
+                  origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+                  eurAmount: tradeAllocation,
+                  horizon: config.decisionCadence || '1h',
+                  ml_shadow: mlShadow,
+                },
+                ts: new Date().toISOString(),
+                idempotencyKey,
+              };
+
+              console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → ML BUY signal, delegating to coordinator for execution (price=${currentPrice})`);
+
+              const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
+                'trading-decision-coordinator',
+                { body: { intent } }
+              );
+
+              if (coordError) {
+                console.error(`🌑 ${BACKEND_ENGINE_MODE}: Coordinator error for ${baseSymbol}:`, coordError);
+                allDecisions.push({
+                  symbol: baseSymbol,
+                  side: 'BUY',
+                  action: 'ERROR',
+                  reason: coordError.message || 'coordinator_error',
+                  confidence: 0,
+                  wouldExecute: false,
+                  timestamp: new Date().toISOString(),
+                  metadata: {
+                    error: coordError,
+                    strategyId: strategy.id,
+                    strategyName: strategy.strategy_name,
+                    price: currentPrice,
+                    intent_side: 'BUY',
+                    execution_status: 'BLOCKED',
+                    execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
+                    snapshot_type: 'ENTRY',
+                    ml_shadow: mlShadow,
+                  }
+                });
+                continue;
+              }
+
+              let parsed = coordinatorResponse;
+              if (typeof parsed === 'string') {
+                try { parsed = JSON.parse(parsed); } catch { parsed = {}; }
+              }
+
+              const decision = parsed?.decision || parsed;
+              const action = decision?.action || 'UNKNOWN';
+              const reason = decision?.reason || 'no_reason';
+
+              console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → coordinator executed: action=${action}, reason=${reason}`);
+
+              const wasExecuted = action === 'BUY' || action === 'SELL';
+              const execution_status: 'EXECUTED' | 'BLOCKED' | 'DEFERRED' = 
+                wasExecuted ? 'EXECUTED' :
+                action === 'DEFER' ? 'DEFERRED' : 'BLOCKED';
+              const execution_reason = wasExecuted ? 'ml_signal_buy' : reason;
+              const wouldExecute = wasExecuted;
+              const side: 'BUY' | 'SELL' | 'HOLD' = wasExecuted ? 'BUY' : 'HOLD';
+              const computedConfidence = mlShadow.ensemble_prob ?? 0.97;
+
+              allDecisions.push({
+                symbol: baseSymbol,
+                side,
+                action,
+                reason,
+                confidence: computedConfidence,
+                fusionScore: null,
+                wouldExecute,
+                timestamp: new Date().toISOString(),
+                metadata: {
+                  strategyId: strategy.id,
+                  strategyName: strategy.strategy_name,
+                  price: currentPrice,
+                  intent_side: 'BUY',
+                  execution_status,
+                  execution_reason,
+                  snapshot_type: 'ENTRY',
+                  ml_shadow: mlShadow,
+                }
+              });
+
+              // Merge ml_shadow into snapshot
+              if (strategy?.id) {
+                try {
+                  await mergeMlShadowIntoSnapshot(supabaseClient, userId, strategy.id, baseSymbol, mlShadow);
+                } catch (mergeErr: any) {
+                  console.warn(`[ml_shadow] ${baseSymbol}: merge failed (non-fatal): ${mergeErr?.message || mergeErr}`);
+                }
+              }
+              continue;
+
+            } else {
+              // ===== ML says NO: HOLD — do not call coordinator =====
+              console.log(
+                `[ML_FILTER] ${symbol}: blocked (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
+              );
+
+              allDecisions.push({
+                symbol: baseSymbol,
+                side: 'HOLD',
+                action: 'HOLD',
+                reason: 'ml_filter_blocked',
+                confidence: 0,
+                fusionScore: null,
+                wouldExecute: false,
+                timestamp: new Date().toISOString(),
+                metadata: {
+                  strategyId: strategy.id,
+                  strategyName: strategy.strategy_name,
+                  price: currentPrice,
+                  intent_side: 'BUY',
+                  execution_status: 'BLOCKED',
+                  execution_reason: 'ml_filter_blocked',
+                  snapshot_type: 'ENTRY',
+                  ml_shadow: mlShadow,
+                }
+              });
+
+              if (strategy?.id) {
+                try {
+                  await mergeMlShadowIntoSnapshot(supabaseClient, userId, strategy.id, baseSymbol, mlShadow);
+                } catch (mergeErr: any) {
+                  console.warn(`[ml_shadow] ${baseSymbol}: merge failed (non-fatal): ${mergeErr?.message || mergeErr}`);
+                }
+              }
+              continue;
+            }
+          }
+
+          // ===== FALLBACK: ML service down or disabled — use coordinator as safety net =====
+          if (mlShadow?.error) {
+            console.warn(`[ML_FILTER] ${symbol}: ML service error (${mlShadow.error}), falling through to coordinator`);
+          }
 
           const intent = {
             userId,
@@ -1258,7 +1378,7 @@ serve(async (req) => {
             symbol: baseSymbol,
             side: 'BUY' as const,
             source: 'intelligent' as const,
-            confidence: null as number | null, // Coordinator derives confidence from its own fusion
+            confidence: null as number | null,
             reason: 'backend_entry_evaluation',
             qtySuggested,
             metadata: {
@@ -1278,7 +1398,7 @@ serve(async (req) => {
             idempotencyKey,
           };
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → delegating entry decision to coordinator (price=${currentPrice})`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → ML unavailable, delegating to coordinator fallback (price=${currentPrice})`);
 
           const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
             'trading-decision-coordinator',
@@ -1319,9 +1439,8 @@ serve(async (req) => {
           const reason = decision?.reason || 'no_reason';
           const coordinatorFusion = parsed?.fusion || null;
 
-          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → coordinator: action=${action}, reason=${reason}, fusionScore=${coordinatorFusion?.score ?? 'null'}`);
+          console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → coordinator fallback: action=${action}, reason=${reason}, fusionScore=${coordinatorFusion?.score ?? 'null'}`);
 
-          // ============= EXECUTION STATUS TRUTH =============
           const wasExecuted = action === 'BUY' || action === 'SELL';
           const execution_status: 'EXECUTED' | 'BLOCKED' | 'DEFERRED' = 
             wasExecuted ? 'EXECUTED' :
@@ -1330,7 +1449,6 @@ serve(async (req) => {
           const wouldExecute = wasExecuted;
           const side: 'BUY' | 'SELL' | 'HOLD' = wasExecuted ? 'BUY' : 'HOLD';
 
-          // Confidence from coordinator fusion (not backend computation)
           const computedConfidence = coordinatorFusion?.score != null 
             ? Math.abs(coordinatorFusion.score) / 100 
             : 0;
