@@ -31,21 +31,28 @@ Le ML devient la **seule source de décision BUY**. Le moteur de règles (fusion
 ```
 1. computeEdaShadow() → mlShadow
 
-2. SI ML disponible (pas d'erreur) :
-   a. SI signal=true (ensemble_prob >= seuil) :
+2. ML_SIGNAL_THRESHOLD = env var (défaut 0.90)
+
+3. SI ML disponible (pas d'erreur) :
+   ensembleProb = mlShadow.ensemble_prob ?? 0
+
+   a. SI ensembleProb >= ML_SIGNAL_THRESHOLD :
       → Construire intent avec reason='ml_signal_buy'
       → Appeler coordinator pour EXÉCUTION seulement (pas pour décision)
       → execution_reason = 'ml_signal_buy'
-      → Log: [ML_FILTER] BTC-EUR: BUY signal (ensemble_prob=0.9812)
+      → Log: [ML_FILTER] XRP-EUR: ensemble_prob=0.9249 >= 0.90 → BUY
 
-   b. SI signal=false :
+   b. SI ensembleProb < ML_SIGNAL_THRESHOLD :
       → HOLD directement, NE PAS appeler coordinator
       → execution_reason = 'ml_filter_blocked'
-      → Log: [ML_FILTER] BTC-EUR: blocked (ensemble_prob=0.2909)
+      → Log: [ML_FILTER] BTC-EUR: ensemble_prob=0.2822 < 0.90 → blocked
 
-3. SI ML indisponible (erreur/timeout) :
+4. SI ML indisponible (erreur/timeout) :
       → FALLBACK : appeler coordinator normalement (fusion score)
       → Log: [ML_FILTER] BTC-EUR: ML service error (...), falling through to coordinator
+
+NOTE: Le champ booléen `signal` retourné par Railway est IGNORÉ.
+      Seul `ensemble_prob` vs ML_SIGNAL_THRESHOLD détermine le signal.
 ```
 
 ---
