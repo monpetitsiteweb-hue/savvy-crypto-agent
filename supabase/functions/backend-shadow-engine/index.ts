@@ -1338,6 +1338,78 @@ serve(async (req) => {
                 `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} < ${ML_SIGNAL_THRESHOLD} → blocked`
               );
 
+              // ===== TRACEABILITY: write decision_event + decision_snapshot directly =====
+              const nowIso = new Date().toISOString();
+              let decisionEventId: string | null = null;
+              try {
+                const { data: deData, error: deError } = await supabaseClient
+                  .from('decision_events')
+                  .insert({
+                    user_id: userId,
+                    strategy_id: strategy.id,
+                    symbol: baseSymbol,
+                    side: 'HOLD',
+                    source: 'intelligent',
+                    reason: 'ml_filter_blocked',
+                    confidence: ensembleProb,
+                    entry_price: currentPrice,
+                    decision_ts: nowIso,
+                    metadata: {
+                      ml_shadow: mlShadow,
+                      engine: 'intelligent',
+                      context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+                      is_test_mode: strategyIsTestMode,
+                      backend_request_id: backendRequestId,
+                      ml_signal_threshold: ML_SIGNAL_THRESHOLD,
+                    },
+                  })
+                  .select('id')
+                  .single();
+
+                if (deError) {
+                  console.warn(`[ML_FILTER] ${baseSymbol}: decision_event insert failed: ${deError.message}`);
+                } else {
+                  decisionEventId = deData?.id ?? null;
+                }
+              } catch (deErr: any) {
+                console.warn(`[ML_FILTER] ${baseSymbol}: decision_event insert error: ${deErr?.message}`);
+              }
+
+              // Write decision_snapshot with full ml_shadow for observability
+              try {
+                const { error: snapError } = await supabaseClient
+                  .from('decision_snapshots')
+                  .insert({
+                    user_id: userId,
+                    strategy_id: strategy.id,
+                    symbol: baseSymbol,
+                    side: 'HOLD',
+                    decision_result: 'HOLD',
+                    decision_reason: 'ml_filter_blocked',
+                    decision_id: decisionEventId,
+                    schema_version: 'v1',
+                    snapshot_type: 'ENTRY',
+                    timestamp_utc: nowIso,
+                    fusion_score: null,
+                    market_context_json: {
+                      entry_price: currentPrice,
+                      ml_shadow: mlShadow,
+                      ml_signal_threshold: ML_SIGNAL_THRESHOLD,
+                      ensemble_prob: ensembleProb,
+                    },
+                    signal_breakdown_json: null,
+                    guard_states_json: null,
+                  });
+
+                if (snapError) {
+                  console.warn(`[ML_FILTER] ${baseSymbol}: decision_snapshot insert failed: ${snapError.message}`);
+                } else {
+                  console.log(`[ML_FILTER] ${baseSymbol}: decision_snapshot written (decision_id=${decisionEventId})`);
+                }
+              } catch (snapErr: any) {
+                console.warn(`[ML_FILTER] ${baseSymbol}: decision_snapshot insert error: ${snapErr?.message}`);
+              }
+
               allDecisions.push({
                 symbol: baseSymbol,
                 side: 'HOLD',
@@ -1346,7 +1418,7 @@ serve(async (req) => {
                 confidence: 0,
                 fusionScore: null,
                 wouldExecute: false,
-                timestamp: new Date().toISOString(),
+                timestamp: nowIso,
                 metadata: {
                   strategyId: strategy.id,
                   strategyName: strategy.strategy_name,
@@ -1358,14 +1430,6 @@ serve(async (req) => {
                   ml_shadow: mlShadow,
                 }
               });
-
-              if (strategy?.id) {
-                try {
-                  await mergeMlShadowIntoSnapshot(supabaseClient, userId, strategy.id, baseSymbol, mlShadow);
-                } catch (mergeErr: any) {
-                  console.warn(`[ml_shadow] ${baseSymbol}: merge failed (non-fatal): ${mergeErr?.message || mergeErr}`);
-                }
-              }
               continue;
             }
           }
