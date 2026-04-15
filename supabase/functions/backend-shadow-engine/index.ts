@@ -1322,14 +1322,9 @@ serve(async (req) => {
                 }
               });
 
-              // Merge ml_shadow into snapshot
-              if (strategy?.id) {
-                try {
-                  await mergeMlShadowIntoSnapshot(supabaseClient, userId, strategy.id, baseSymbol, mlShadow);
-                } catch (mergeErr: any) {
-                  console.warn(`[ml_shadow] ${baseSymbol}: merge failed (non-fatal): ${mergeErr?.message || mergeErr}`);
-                }
-              }
+              // NOTE: Do NOT call mergeMlShadowIntoSnapshot here.
+              // The ml_signal_buy snapshot is written by the coordinator with ml_shadow
+              // already in intent.metadata. Calling merge would pollute older HOLD snapshots.
               continue;
 
             } else {
