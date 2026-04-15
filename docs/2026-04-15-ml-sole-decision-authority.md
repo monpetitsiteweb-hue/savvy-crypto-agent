@@ -123,16 +123,59 @@ if (mlShadow?.error) {
 | Composant | Statut |
 |-----------|--------|
 | `computeEdaShadow()` | ❌ Non modifié |
-| `trading-decision-coordinator` | ❌ Non modifié |
 | `mergeMlShadowIntoSnapshot()` | ❌ Non modifié |
 | Logique SELL / TP / SL / trailing | ❌ Non modifié |
 | Tables DB / schéma | ❌ Non modifié |
 
 ---
 
+## Fichier modifié (2/2)
+
+### `supabase/functions/trading-decision-coordinator/index.ts`
+
+### ML Bypass — Fusion gate (ligne ~4074)
+
+**BEFORE** :
+```typescript
+if (intent.side === 'BUY' && precomputedFusionData) {
+  // fusion gate s'applique toujours → bloque si score < threshold
+}
+```
+
+**AFTER** :
+```typescript
+const isMlSignalBuy = intent.reason === 'ml_signal_buy';
+if (isMlSignalBuy) {
+  console.log(`[ML_BYPASS] ${intent.symbol}: skipping fusion gate & confidence gate`);
+}
+
+if (intent.side === 'BUY' && precomputedFusionData && !isMlSignalBuy) {
+  // fusion gate sautée si ML signal
+}
+```
+
+### ML Bypass — Confidence gate (ligne ~4329)
+
+**BEFORE** :
+```typescript
+if (effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
+  // → signal_too_weak → HOLD
+}
+```
+
+**AFTER** :
+```typescript
+if (!isMlSignalBuy && effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
+  // → sauté si ML signal
+}
+```
+
+---
+
 ## Impact
 
-- **ML signal=true** → BUY exécuté (coordinator reçoit intent avec `reason: 'ml_signal_buy'`)
+- **ML signal=true** → BUY exécuté (coordinator bypass fusion + confidence gates)
 - **ML signal=false** → HOLD (coordinator jamais appelé)
 - **ML down** → coordinator fallback (fusion score, comme avant la migration ML)
 - Le fusion score n'est plus utilisé comme critère d'entrée quand le ML est disponible
+- Les guards de sécurité du coordinator (exposure, circuit breakers, SL cooldown) restent actifs même pour les ML intents
