@@ -102,14 +102,18 @@ if (mlSignalBuy) {
 }
 ```
 
-### 2. Branche ML signal=false (HOLD)
+### 2. Branche ML signal=false (HOLD) — avec traçabilité complète
 
 ```typescript
 } else {
   console.log(`[ML_FILTER] ${symbol}: blocked (ensemble_prob=...)`);
-  allDecisions.push({
-    // side: 'HOLD', action: 'HOLD', reason: 'ml_filter_blocked'
-  });
+  
+  // TRACEABILITY: écriture directe decision_event + decision_snapshot
+  // decision_event: side='HOLD', reason='ml_filter_blocked', confidence=ensembleProb
+  // decision_snapshot: market_context_json contient ml_shadow complet
+  //   (ensemble_prob, stoch_k, rsi14, signal, would_filter, ml_signal_threshold)
+  
+  allDecisions.push({ ... });
   continue; // Coordinator JAMAIS appelé
 }
 ```
