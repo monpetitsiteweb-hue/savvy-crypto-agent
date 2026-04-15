@@ -32,6 +32,7 @@ const BACKEND_ENGINE_MODE: EngineMode =
 // ============= SHADOW ML (Railway /predict service) =============
 const SHADOW_ML_ENABLED = (Deno.env.get('SHADOW_ML_ENABLED') ?? 'true') === 'true';
 const ML_SERVICE_URL = (Deno.env.get('ML_SERVICE_URL') ?? 'https://savvy-crypto-ml-production.up.railway.app').replace(/\/+$/, '');
+const ML_SIGNAL_THRESHOLD = Number(Deno.env.get('ML_SIGNAL_THRESHOLD') ?? '0.90');
 
 interface MlPredictResponse {
   stoch_k?: number | null;
@@ -1209,15 +1210,17 @@ serve(async (req) => {
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
 
-          // ML decision: signal=true → BUY, signal=false → HOLD
+          // ML decision: ensemble_prob >= ML_SIGNAL_THRESHOLD → BUY, else → HOLD
+          // Ignores the boolean signal field from Railway — uses probability threshold only
           // If ML service is down (error/fallback) → fall through to coordinator as safety net
           if (mlShadow && !mlShadow.error) {
-            const mlSignalBuy = mlShadow.signal === 'true' || mlShadow.signal === true;
+            const ensembleProb = mlShadow.ensemble_prob ?? 0;
+            const mlSignalBuy = ensembleProb >= ML_SIGNAL_THRESHOLD;
 
             if (mlSignalBuy) {
               // ===== ML SIGNAL BUY: bypass coordinator entirely =====
               console.log(
-                `[ML_FILTER] ${symbol}: BUY signal (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
+                `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} >= ${ML_SIGNAL_THRESHOLD} → BUY`
               );
 
               const intent = {
@@ -1332,7 +1335,7 @@ serve(async (req) => {
             } else {
               // ===== ML says NO: HOLD — do not call coordinator =====
               console.log(
-                `[ML_FILTER] ${symbol}: blocked (ensemble_prob=${mlShadow.ensemble_prob?.toFixed(4) ?? 'null'})`
+                `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} < ${ML_SIGNAL_THRESHOLD} → blocked`
               );
 
               allDecisions.push({
