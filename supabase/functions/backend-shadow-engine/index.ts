@@ -40,6 +40,8 @@ interface MlPredictResponse {
   eda_signal?: boolean | null;
   would_filter?: boolean | null;
   ensemble_prob?: number | null;
+  xgb_prob?: number | null;
+  lstm_prob?: number | null;
   signal?: string | null;
 }
 
@@ -49,6 +51,8 @@ interface EdaShadowResult {
   eda_signal: boolean;
   would_filter: boolean;
   ensemble_prob: number | null;
+  xgb_prob: number | null;
+  lstm_prob: number | null;
   signal: string | null;
   error?: string;
 }
@@ -67,6 +71,8 @@ async function computeEdaShadow(
     eda_signal: false,
     would_filter: false,
     ensemble_prob: null,
+    xgb_prob: null,
+    lstm_prob: null,
     signal: null,
   };
 
@@ -132,6 +138,8 @@ async function computeEdaShadow(
         ? result.would_filter
         : !(typeof result.eda_signal === 'boolean' ? result.eda_signal : false),
       ensemble_prob: result.ensemble_prob != null ? Number(result.ensemble_prob) : null,
+      xgb_prob: result.xgb_prob != null ? Number(result.xgb_prob) : null,
+      lstm_prob: result.lstm_prob != null ? Number(result.lstm_prob) : null,
       signal: result.signal != null ? String(result.signal) : null,
     };
 
@@ -139,7 +147,10 @@ async function computeEdaShadow(
       `[ml_shadow] ${symbol}: stochK=${mapped.stoch_k?.toFixed(1) ?? 'null'} ` +
       `rsi14=${mapped.rsi14?.toFixed(1) ?? 'null'} ` +
       `eda_signal=${mapped.eda_signal} would_filter=${mapped.would_filter} ` +
-      `ensemble_prob=${mapped.ensemble_prob?.toFixed(4) ?? 'null'} signal=${mapped.signal ?? 'null'}`
+      `ensemble_prob=${mapped.ensemble_prob?.toFixed(4) ?? 'null'} ` +
+      `xgb_prob=${mapped.xgb_prob?.toFixed(4) ?? 'null'} ` +
+      `lstm_prob=${mapped.lstm_prob?.toFixed(4) ?? 'null'} ` +
+      `signal=${mapped.signal ?? 'null'}`
     );
 
     return mapped;
