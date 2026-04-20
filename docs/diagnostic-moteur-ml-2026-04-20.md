@@ -61,6 +61,44 @@
 
 ---
 
+## Requête 2bis — Détail complet `ml_shadow` (2026-04-19 17:00→22:00, ensemble_prob > 0.96)
+
+22 lignes retournées. `full_ml_shadow` contient uniquement : `eda_signal`, `ensemble_prob`, `rsi14`, `signal`, `stoch_k`, `would_filter`. **Aucun `xgb_prob` / `lstm_prob` dans le payload.**
+
+| created_at | symbol | ensemble_prob | stoch_k | rsi14 | eda_signal | signal | would_filter |
+|---|---|---|---|---|---|---|---|
+| 2026-04-19 18:55:05 | XRP | 0.9688 | 44.32 | 43.25 | false | false | true |
+| 2026-04-19 18:10:03 | SOL | 0.9684 | 2.50  | 30.35 | false | false | true |
+| 2026-04-19 19:45:08 | SOL | 0.9679 | 57.63 | 47.75 | false | false | true |
+| 2026-04-19 19:50:03 | SOL | 0.9679 | 57.63 | 47.75 | false | false | true |
+| 2026-04-19 20:45:04 | ADA | 0.9676 | 0     | 37.36 | false | false | true |
+| 2026-04-19 20:20:04 | XRP | 0.9675 | 5.19  | 36.04 | false | false | true |
+| 2026-04-19 17:25:04 | ADA | 0.9673 | 16.13 | 40.45 | false | false | true |
+| 2026-04-19 21:55:02 | SOL | 0.9670 | 56.82 | 47.43 | false | false | true |
+| 2026-04-19 17:00:03 | ETH | 0.9667 | 7.02  | 30.20 | false | false | true |
+| 2026-04-19 20:55:03 | SOL | 0.9661 | 7.27  | 37.57 | false | false | true |
+| 2026-04-19 20:50:40 | SOL | 0.9661 | 7.27  | 37.57 | false | false | true |
+| 2026-04-19 18:25:04 | XRP | 0.9661 | 20.56 | 36.15 | false | false | true |
+| 2026-04-19 20:50:27 | SOL | 0.9661 | 7.27  | 37.57 | false | false | true |
+| 2026-04-19 18:10:05 | ADA | 0.9658 | 14.29 | 32.18 | false | false | true |
+| 2026-04-19 20:50:02 | ETH | 0.9657 | 0     | 35.87 | false | false | true |
+| 2026-04-19 20:45:02 | ETH | 0.9657 | 0     | 35.87 | false | false | true |
+| 2026-04-19 20:50:03 | ETH | 0.9657 | 0     | 35.87 | false | false | true |
+| 2026-04-19 21:00:04 | SOL | 0.9655 | 31.37 | 44.16 | false | false | true |
+| 2026-04-19 17:51:07 | SOL | 0.9654 | 8.11  | 37.27 | false | false | true |
+| 2026-04-19 17:51:11 | SOL | 0.9654 | 8.11  | 37.27 | false | false | true |
+| 2026-04-19 17:51:03 | SOL | 0.9654 | 8.11  | 37.27 | false | false | true |
+| 2026-04-19 17:55:03 | SOL | 0.9654 | 8.11  | 37.27 | false | false | true |
+| 2026-04-19 17:50:03 | SOL | 0.9654 | 8.11  | 37.27 | false | false | true |
+
+**Observations brutes** :
+- Payload `ml_shadow` complet = 6 champs uniquement (pas de probas individuelles XGB/LSTM)
+- 4 lignes avec `stoch_k = 0` exact (ADA 20:45 + ETH 20:45/20:50 ×3)
+- Plage prob observée : 0.9654 → 0.9688 (delta 34 bps), aucune ≥ 0.97
+- Doublons temporels (SOL 17:51 ×3, ETH 20:45-20:50 ×3) → mêmes valeurs `ml_shadow` exactement → cycles rapprochés sur la même bougie 5m
+
+---
+
 ## Requête 3 — `ml_signal_buy` (24h)
 
 **0 ligne retournée.**
