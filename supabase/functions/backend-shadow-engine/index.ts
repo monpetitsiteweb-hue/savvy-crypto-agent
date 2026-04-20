@@ -54,7 +54,7 @@ interface EdaShadowResult {
 }
 
 /**
- * Fetch the latest 300 candles and delegate ml_shadow scoring to the Railway ML service.
+ * Fetch the latest 400 candles and delegate ml_shadow scoring to the Railway ML service.
  * Pure observation — never blocks trades.
  */
 async function computeEdaShadow(
@@ -77,16 +77,16 @@ async function computeEdaShadow(
       .eq('symbol', symbol)
       .eq('granularity', '5m')
       .order('ts_utc', { ascending: false })
-      .limit(300);
+      .limit(400);
 
     if (candlesError) {
       throw new Error(`candle fetch failed: ${candlesError.message}`);
     }
 
     const candleCount = candles?.length ?? 0;
-    if (!candles || candleCount < 300) {
-      console.log(`[ml_shadow] ${symbol}: insufficient candles (${candleCount}/300)`);
-      return { ...fallback, error: `insufficient candles (${candleCount}/300)` };
+    if (!candles || candleCount < 400) {
+      console.log(`[ml_shadow] ${symbol}: insufficient candles (${candleCount}/400)`);
+      return { ...fallback, error: `insufficient candles (${candleCount}/400)` };
     }
 
     const payload = {
