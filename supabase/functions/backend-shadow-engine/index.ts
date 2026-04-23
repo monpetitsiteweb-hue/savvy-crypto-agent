@@ -114,6 +114,7 @@ async function computeEdaShadow(
       return { ...fallback, error: `insufficient candles (${candleCount}/400)` };
     }
 
+    const closesChrono = [...candles].reverse().map((c: any) => Number(c.close));
     const payload = {
       symbol,
       candles: [...candles].reverse().map((c: any) => ({
@@ -160,6 +161,7 @@ async function computeEdaShadow(
       xgb_prob: result.xgb_prob != null ? Number(result.xgb_prob) : null,
       lstm_prob: result.lstm_prob != null ? Number(result.lstm_prob) : null,
       signal: result.signal != null ? String(result.signal) : null,
+      closes: closesChrono,
     };
 
     console.log(
@@ -180,6 +182,99 @@ async function computeEdaShadow(
     console.error(`[ml_shadow] ${symbol}: error:`, message);
     return { ...fallback, error: message };
   }
+}
+
+// ============= TREND-FOLLOWING SIGNAL (rule-based, parallel to ML) =============
+
+function computeEmaSeries(closes: number[], period: number): number[] {
+  if (closes.length === 0) return [];
+  const k = 2 / (period + 1);
+  const ema: number[] = new Array(closes.length);
+  if (closes.length < period) {
+    ema[0] = closes[0];
+    for (let i = 1; i < closes.length; i++) ema[i] = closes[i] * k + ema[i - 1] * (1 - k);
+    return ema;
+  }
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += closes[i];
+  for (let i = 0; i < period - 1; i++) ema[i] = NaN;
+  ema[period - 1] = sum / period;
+  for (let i = period; i < closes.length; i++) {
+    ema[i] = closes[i] * k + ema[i - 1] * (1 - k);
+  }
+  return ema;
+}
+
+/**
+ * TREND-FOLLOWING signal — pure rule-based, runs in parallel to ML.
+ * Reuses closes already fetched by computeEdaShadow (no extra DB query).
+ *
+ * Conditions (all must pass):
+ *   1. stoch_k >= 80
+ *   2. rsi14 >= 55
+ *   3. ema9 > ema21 > ema50
+ *   4. close > ema200
+ *   5. ema200_slope_48 > 0  (= (ema200_now - ema200_48ago) / ema200_48ago)
+ */
+function computeTrendSignal(
+  symbol: string,
+  mlShadow: EdaShadowResult,
+): TrendSignalResult {
+  const empty: TrendSignalResult = {
+    triggered: false,
+    stoch_k: mlShadow.stoch_k, rsi14: mlShadow.rsi14,
+    ema9: null, ema21: null, ema50: null, ema200: null, ema200_slope_48: null,
+    close: null,
+    ema_aligned: false, above_ema200: false, ema200_slope_positive: false,
+    momentum_ok: false, rsi_ok: false,
+    failed_conditions: [],
+  };
+
+  const closes = mlShadow.closes;
+  if (!closes || closes.length < 248) {
+    return { ...empty, failed_conditions: [`insufficient_closes (${closes?.length ?? 0}/248)`] };
+  }
+
+  const lastClose = closes[closes.length - 1];
+  const ema9series   = computeEmaSeries(closes, 9);
+  const ema21series  = computeEmaSeries(closes, 21);
+  const ema50series  = computeEmaSeries(closes, 50);
+  const ema200series = computeEmaSeries(closes, 200);
+
+  const ema9   = ema9series[ema9series.length - 1];
+  const ema21  = ema21series[ema21series.length - 1];
+  const ema50  = ema50series[ema50series.length - 1];
+  const ema200 = ema200series[ema200series.length - 1];
+  const ema200_lagged = ema200series[ema200series.length - 1 - 48];
+  const ema200_slope_48 = (Number.isFinite(ema200_lagged) && ema200_lagged !== 0)
+    ? (ema200 - ema200_lagged) / ema200_lagged
+    : null;
+
+  const stochK = mlShadow.stoch_k;
+  const rsi14  = mlShadow.rsi14;
+
+  const momentum_ok           = stochK !== null && stochK >= 80;
+  const rsi_ok                = rsi14  !== null && rsi14  >= 55;
+  const ema_aligned           = ema9 > ema21 && ema21 > ema50;
+  const above_ema200          = lastClose > ema200;
+  const ema200_slope_positive = ema200_slope_48 !== null && ema200_slope_48 > 0;
+
+  const failed: string[] = [];
+  if (!momentum_ok)           failed.push(`stoch_k<80 (${stochK?.toFixed(1) ?? 'null'})`);
+  if (!rsi_ok)                failed.push(`rsi14<55 (${rsi14?.toFixed(1) ?? 'null'})`);
+  if (!ema_aligned)           failed.push(`ema_not_aligned (9=${ema9?.toFixed(2)} 21=${ema21?.toFixed(2)} 50=${ema50?.toFixed(2)})`);
+  if (!above_ema200)          failed.push(`close<=ema200 (${lastClose.toFixed(2)} vs ${ema200?.toFixed(2)})`);
+  if (!ema200_slope_positive) failed.push(`ema200_slope<=0 (${ema200_slope_48?.toFixed(5) ?? 'null'})`);
+
+  return {
+    triggered: failed.length === 0,
+    stoch_k: stochK, rsi14,
+    ema9, ema21, ema50, ema200, ema200_slope_48,
+    close: lastClose,
+    ema_aligned, above_ema200, ema200_slope_positive,
+    momentum_ok, rsi_ok,
+    failed_conditions: failed,
+  };
 }
 
 /**
