@@ -1368,7 +1368,7 @@ serve(async (req) => {
                   origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                   eurAmount: tradeAllocation,
                   horizon: config.decisionCadence || '1h',
-                  ml_shadow: mlShadow,
+                  ml_shadow: { ...mlShadow, closes: undefined },
                 },
                 ts: new Date().toISOString(),
                 idempotencyKey,
