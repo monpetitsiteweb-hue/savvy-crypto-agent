@@ -54,7 +54,26 @@ interface EdaShadowResult {
   xgb_prob: number | null;
   lstm_prob: number | null;
   signal: string | null;
+  closes?: number[];
   error?: string;
+}
+
+interface TrendSignalResult {
+  triggered: boolean;
+  stoch_k: number | null;
+  rsi14: number | null;
+  ema9: number | null;
+  ema21: number | null;
+  ema50: number | null;
+  ema200: number | null;
+  ema200_slope_48: number | null;
+  close: number | null;
+  ema_aligned: boolean;
+  above_ema200: boolean;
+  ema200_slope_positive: boolean;
+  momentum_ok: boolean;
+  rsi_ok: boolean;
+  failed_conditions: string[];
 }
 
 /**
@@ -95,6 +114,7 @@ async function computeEdaShadow(
       return { ...fallback, error: `insufficient candles (${candleCount}/400)` };
     }
 
+    const closesChrono = [...candles].reverse().map((c: any) => Number(c.close));
     const payload = {
       symbol,
       candles: [...candles].reverse().map((c: any) => ({
@@ -141,6 +161,7 @@ async function computeEdaShadow(
       xgb_prob: result.xgb_prob != null ? Number(result.xgb_prob) : null,
       lstm_prob: result.lstm_prob != null ? Number(result.lstm_prob) : null,
       signal: result.signal != null ? String(result.signal) : null,
+      closes: closesChrono,
     };
 
     console.log(
@@ -161,6 +182,99 @@ async function computeEdaShadow(
     console.error(`[ml_shadow] ${symbol}: error:`, message);
     return { ...fallback, error: message };
   }
+}
+
+// ============= TREND-FOLLOWING SIGNAL (rule-based, parallel to ML) =============
+
+function computeEmaSeries(closes: number[], period: number): number[] {
+  if (closes.length === 0) return [];
+  const k = 2 / (period + 1);
+  const ema: number[] = new Array(closes.length);
+  if (closes.length < period) {
+    ema[0] = closes[0];
+    for (let i = 1; i < closes.length; i++) ema[i] = closes[i] * k + ema[i - 1] * (1 - k);
+    return ema;
+  }
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += closes[i];
+  for (let i = 0; i < period - 1; i++) ema[i] = NaN;
+  ema[period - 1] = sum / period;
+  for (let i = period; i < closes.length; i++) {
+    ema[i] = closes[i] * k + ema[i - 1] * (1 - k);
+  }
+  return ema;
+}
+
+/**
+ * TREND-FOLLOWING signal — pure rule-based, runs in parallel to ML.
+ * Reuses closes already fetched by computeEdaShadow (no extra DB query).
+ *
+ * Conditions (all must pass):
+ *   1. stoch_k >= 80
+ *   2. rsi14 >= 55
+ *   3. ema9 > ema21 > ema50
+ *   4. close > ema200
+ *   5. ema200_slope_48 > 0  (= (ema200_now - ema200_48ago) / ema200_48ago)
+ */
+function computeTrendSignal(
+  symbol: string,
+  mlShadow: EdaShadowResult,
+): TrendSignalResult {
+  const empty: TrendSignalResult = {
+    triggered: false,
+    stoch_k: mlShadow.stoch_k, rsi14: mlShadow.rsi14,
+    ema9: null, ema21: null, ema50: null, ema200: null, ema200_slope_48: null,
+    close: null,
+    ema_aligned: false, above_ema200: false, ema200_slope_positive: false,
+    momentum_ok: false, rsi_ok: false,
+    failed_conditions: [],
+  };
+
+  const closes = mlShadow.closes;
+  if (!closes || closes.length < 248) {
+    return { ...empty, failed_conditions: [`insufficient_closes (${closes?.length ?? 0}/248)`] };
+  }
+
+  const lastClose = closes[closes.length - 1];
+  const ema9series   = computeEmaSeries(closes, 9);
+  const ema21series  = computeEmaSeries(closes, 21);
+  const ema50series  = computeEmaSeries(closes, 50);
+  const ema200series = computeEmaSeries(closes, 200);
+
+  const ema9   = ema9series[ema9series.length - 1];
+  const ema21  = ema21series[ema21series.length - 1];
+  const ema50  = ema50series[ema50series.length - 1];
+  const ema200 = ema200series[ema200series.length - 1];
+  const ema200_lagged = ema200series[ema200series.length - 1 - 48];
+  const ema200_slope_48 = (Number.isFinite(ema200_lagged) && ema200_lagged !== 0)
+    ? (ema200 - ema200_lagged) / ema200_lagged
+    : null;
+
+  const stochK = mlShadow.stoch_k;
+  const rsi14  = mlShadow.rsi14;
+
+  const momentum_ok           = stochK !== null && stochK >= 80;
+  const rsi_ok                = rsi14  !== null && rsi14  >= 55;
+  const ema_aligned           = ema9 > ema21 && ema21 > ema50;
+  const above_ema200          = lastClose > ema200;
+  const ema200_slope_positive = ema200_slope_48 !== null && ema200_slope_48 > 0;
+
+  const failed: string[] = [];
+  if (!momentum_ok)           failed.push(`stoch_k<80 (${stochK?.toFixed(1) ?? 'null'})`);
+  if (!rsi_ok)                failed.push(`rsi14<55 (${rsi14?.toFixed(1) ?? 'null'})`);
+  if (!ema_aligned)           failed.push(`ema_not_aligned (9=${ema9?.toFixed(2)} 21=${ema21?.toFixed(2)} 50=${ema50?.toFixed(2)})`);
+  if (!above_ema200)          failed.push(`close<=ema200 (${lastClose.toFixed(2)} vs ${ema200?.toFixed(2)})`);
+  if (!ema200_slope_positive) failed.push(`ema200_slope<=0 (${ema200_slope_48?.toFixed(5) ?? 'null'})`);
+
+  return {
+    triggered: failed.length === 0,
+    stoch_k: stochK, rsi14,
+    ema9, ema21, ema50, ema200, ema200_slope_48,
+    close: lastClose,
+    ema_aligned, above_ema200, ema200_slope_positive,
+    momentum_ok, rsi_ok,
+    failed_conditions: failed,
+  };
 }
 
 /**
@@ -1254,7 +1368,7 @@ serve(async (req) => {
                   origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                   eurAmount: tradeAllocation,
                   horizon: config.decisionCadence || '1h',
-                  ml_shadow: mlShadow,
+                  ml_shadow: { ...mlShadow, closes: undefined },
                 },
                 ts: new Date().toISOString(),
                 idempotencyKey,
@@ -1286,7 +1400,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
                     snapshot_type: 'ENTRY',
-                    ml_shadow: mlShadow,
+                    ml_shadow: { ...mlShadow, closes: undefined },
                   }
                 });
                 continue;
@@ -1329,7 +1443,7 @@ serve(async (req) => {
                   execution_status,
                   execution_reason,
                   snapshot_type: 'ENTRY',
-                  ml_shadow: mlShadow,
+                  ml_shadow: { ...mlShadow, closes: undefined },
                 }
               });
 
@@ -1339,10 +1453,157 @@ serve(async (req) => {
               continue;
 
             } else {
-              // ===== ML says NO: HOLD — do not call coordinator =====
+              // ===== ML says NO → evaluate TREND signal in parallel =====
+              const trend = computeTrendSignal(symbol, mlShadow);
+              const mlShadowForStorage = { ...mlShadow, closes: undefined };
+
+              if (trend.triggered) {
+                // ===== TREND SIGNAL BUY: bypass coordinator gates (like ml_signal_buy) =====
+                console.log(
+                  `[TREND_SIGNAL] ${symbol}: stoch_k=${trend.stoch_k?.toFixed(1)} rsi14=${trend.rsi14?.toFixed(1)} ` +
+                  `ema9=${trend.ema9?.toFixed(2)} ema21=${trend.ema21?.toFixed(2)} ema50=${trend.ema50?.toFixed(2)} ` +
+                  `ema200=${trend.ema200?.toFixed(2)} slope48=${trend.ema200_slope_48?.toFixed(5)} → BUY`
+                );
+
+                const trendSignalMeta = {
+                  trigger: 'trend_signal',
+                  stoch_k: trend.stoch_k,
+                  rsi14: trend.rsi14,
+                  ema9: trend.ema9,
+                  ema21: trend.ema21,
+                  ema50: trend.ema50,
+                  ema200: trend.ema200,
+                  ema200_slope_48: trend.ema200_slope_48,
+                  ema_aligned: trend.ema_aligned,
+                  above_ema200: trend.above_ema200,
+                  ema200_slope_positive: trend.ema200_slope_positive,
+                };
+
+                const intent = {
+                  userId,
+                  strategyId: strategy.id,
+                  symbol: baseSymbol,
+                  side: 'BUY' as const,
+                  source: 'intelligent' as const,
+                  confidence: 0.85,
+                  reason: 'trend_signal_buy',
+                  qtySuggested,
+                  metadata: {
+                    mode: strategyIsTestMode ? 'mock' : 'live',
+                    engine: 'intelligent',
+                    is_test_mode: strategyIsTestMode,
+                    context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+                    backend_ts: new Date().toISOString(),
+                    currentPrice,
+                    backend_request_id: backendRequestId,
+                    origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+                    eurAmount: tradeAllocation,
+                    horizon: config.decisionCadence || '1h',
+                    ml_shadow: mlShadowForStorage,
+                    trend_signal: trendSignalMeta,
+                  },
+                  ts: new Date().toISOString(),
+                  idempotencyKey,
+                };
+
+                console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → TREND BUY signal, delegating to coordinator (price=${currentPrice})`);
+
+                const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
+                  'trading-decision-coordinator',
+                  { body: { intent } }
+                );
+
+                if (coordError) {
+                  console.error(`🌑 ${BACKEND_ENGINE_MODE}: Coordinator error for ${baseSymbol}:`, coordError);
+                  allDecisions.push({
+                    symbol: baseSymbol,
+                    side: 'BUY',
+                    action: 'ERROR',
+                    reason: coordError.message || 'coordinator_error',
+                    confidence: 0,
+                    wouldExecute: false,
+                    timestamp: new Date().toISOString(),
+                    metadata: {
+                      error: coordError,
+                      strategyId: strategy.id,
+                      strategyName: strategy.strategy_name,
+                      price: currentPrice,
+                      intent_side: 'BUY',
+                      execution_status: 'BLOCKED',
+                      execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
+                      snapshot_type: 'ENTRY',
+                      ml_shadow: mlShadowForStorage,
+                      trend_signal: trendSignalMeta,
+                    }
+                  });
+                  continue;
+                }
+
+                let parsed = coordinatorResponse;
+                if (typeof parsed === 'string') {
+                  try { parsed = JSON.parse(parsed); } catch { parsed = {}; }
+                }
+
+                const decision = parsed?.decision || parsed;
+                const action = decision?.action || 'UNKNOWN';
+                const reason = decision?.reason || 'no_reason';
+
+                console.log(`🌑 ${BACKEND_ENGINE_MODE}: ${baseSymbol} → coordinator executed (trend): action=${action}, reason=${reason}`);
+
+                const wasExecuted = action === 'BUY' || action === 'SELL';
+                const execution_status: 'EXECUTED' | 'BLOCKED' | 'DEFERRED' =
+                  wasExecuted ? 'EXECUTED' :
+                  action === 'DEFER' ? 'DEFERRED' : 'BLOCKED';
+                const execution_reason = wasExecuted ? 'trend_signal_buy' : reason;
+                const side: 'BUY' | 'SELL' | 'HOLD' = wasExecuted ? 'BUY' : 'HOLD';
+
+                allDecisions.push({
+                  symbol: baseSymbol,
+                  side,
+                  action,
+                  reason,
+                  confidence: 0.85,
+                  fusionScore: null,
+                  wouldExecute: wasExecuted,
+                  timestamp: new Date().toISOString(),
+                  metadata: {
+                    strategyId: strategy.id,
+                    strategyName: strategy.strategy_name,
+                    price: currentPrice,
+                    intent_side: 'BUY',
+                    execution_status,
+                    execution_reason,
+                    snapshot_type: 'ENTRY',
+                    ml_shadow: mlShadowForStorage,
+                    trend_signal: trendSignalMeta,
+                  }
+                });
+                continue;
+              }
+
+              // ===== ML says NO + TREND says NO → HOLD =====
               console.log(
                 `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} < ${ML_SIGNAL_THRESHOLD} → blocked`
               );
+              console.log(
+                `[TREND_SIGNAL] ${symbol}: conditions non remplies (${trend.failed_conditions.join(', ')})`
+              );
+
+              const trendSignalMetaHold = {
+                trigger: 'trend_signal',
+                triggered: false,
+                failed_conditions: trend.failed_conditions,
+                stoch_k: trend.stoch_k,
+                rsi14: trend.rsi14,
+                ema9: trend.ema9,
+                ema21: trend.ema21,
+                ema50: trend.ema50,
+                ema200: trend.ema200,
+                ema200_slope_48: trend.ema200_slope_48,
+                ema_aligned: trend.ema_aligned,
+                above_ema200: trend.above_ema200,
+                ema200_slope_positive: trend.ema200_slope_positive,
+              };
 
               // ===== TRACEABILITY: write decision_event + decision_snapshot directly =====
               const nowIso = new Date().toISOString();
@@ -1361,7 +1622,8 @@ serve(async (req) => {
                     entry_price: currentPrice,
                     decision_ts: nowIso,
                     metadata: {
-                      ml_shadow: mlShadow,
+                      ml_shadow: mlShadowForStorage,
+                      trend_signal: trendSignalMetaHold,
                       engine: 'intelligent',
                       context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                       is_test_mode: strategyIsTestMode,
@@ -1381,7 +1643,7 @@ serve(async (req) => {
                 console.warn(`[ML_FILTER] ${baseSymbol}: decision_event insert error: ${deErr?.message}`);
               }
 
-              // Write decision_snapshot with full ml_shadow for observability
+              // Write decision_snapshot with full ml_shadow + trend_signal for observability
               try {
                 const { error: snapError } = await supabaseClient
                   .from('decision_snapshots')
@@ -1399,9 +1661,10 @@ serve(async (req) => {
                     fusion_score: null,
                     market_context_json: {
                       entry_price: currentPrice,
-                      ml_shadow: mlShadow,
+                      ml_shadow: mlShadowForStorage,
                       ml_signal_threshold: ML_SIGNAL_THRESHOLD,
                       ensemble_prob: ensembleProb,
+                      trend_signal: trendSignalMetaHold,
                     },
                     signal_breakdown_json: null,
                     guard_states_json: null,
@@ -1433,7 +1696,8 @@ serve(async (req) => {
                   execution_status: 'BLOCKED',
                   execution_reason: 'ml_filter_blocked',
                   snapshot_type: 'ENTRY',
-                  ml_shadow: mlShadow,
+                  ml_shadow: mlShadowForStorage,
+                  trend_signal: trendSignalMetaHold,
                 }
               });
               continue;

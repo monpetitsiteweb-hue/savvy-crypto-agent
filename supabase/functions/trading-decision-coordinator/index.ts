@@ -4071,14 +4071,16 @@ serve(async (req) => {
     };
     console.log(`[COORD] unifiedConfig resolved: enableUnifiedDecisions=${unifiedConfig.enableUnifiedDecisions} (source=${strategy.configuration?.unifiedConfig ? 'configuration.unifiedConfig' : 'default_fallback'})`);
 
-    // ============= ML BYPASS: skip fusion & confidence gates for ML-driven intents =============
+    // ============= ML/TREND BYPASS: skip fusion & confidence gates for engine-driven intents =============
     const isMlSignalBuy = intent.reason === 'ml_signal_buy';
-    if (isMlSignalBuy) {
-      console.log(`[ML_BYPASS] ${intent.symbol}: skipping fusion gate & confidence gate (reason=ml_signal_buy, confidence=${intent.confidence})`);
+    const isTrendSignalBuy = intent.reason === 'trend_signal_buy';
+    const bypassFusionAndConfidence = isMlSignalBuy || isTrendSignalBuy;
+    if (bypassFusionAndConfidence) {
+      console.log(`[ML_BYPASS] ${intent.symbol}: skipping fusion gate & confidence gate (reason=${intent.reason}, confidence=${intent.confidence})`);
     }
 
     // ============= FUSION THRESHOLD + CONFIDENCE (fusion already computed above) =============
-    if (intent.side === 'BUY' && precomputedFusionData && !isMlSignalBuy) {
+    if (intent.side === 'BUY' && precomputedFusionData && !bypassFusionAndConfidence) {
       // THRESHOLD GOVERNANCE: Check if fusion meets entry threshold
       const rawEnterThreshold = strategy.configuration?.signalFusion?.enterThreshold;
       if (rawEnterThreshold !== undefined && rawEnterThreshold !== null) {
@@ -4332,7 +4334,7 @@ serve(async (req) => {
 
     // Apply confidence gate (unless confidence is null or ML bypass)
     try {
-      if (!isMlSignalBuy && effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
+      if (!bypassFusionAndConfidence && effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
         console.log("[coordinator] 🚫 Decision blocked by confidence gate", {
           symbol: intent.symbol,
           side: intent.side,
