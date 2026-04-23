@@ -1400,7 +1400,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
                     snapshot_type: 'ENTRY',
-                    ml_shadow: mlShadow,
+                    ml_shadow: { ...mlShadow, closes: undefined },
                   }
                 });
                 continue;
