@@ -54,7 +54,26 @@ interface EdaShadowResult {
   xgb_prob: number | null;
   lstm_prob: number | null;
   signal: string | null;
+  closes?: number[];
   error?: string;
+}
+
+interface TrendSignalResult {
+  triggered: boolean;
+  stoch_k: number | null;
+  rsi14: number | null;
+  ema9: number | null;
+  ema21: number | null;
+  ema50: number | null;
+  ema200: number | null;
+  ema200_slope_48: number | null;
+  close: number | null;
+  ema_aligned: boolean;
+  above_ema200: boolean;
+  ema200_slope_positive: boolean;
+  momentum_ok: boolean;
+  rsi_ok: boolean;
+  failed_conditions: string[];
 }
 
 /**
