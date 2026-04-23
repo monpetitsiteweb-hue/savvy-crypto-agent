@@ -1443,7 +1443,7 @@ serve(async (req) => {
                   execution_status,
                   execution_reason,
                   snapshot_type: 'ENTRY',
-                  ml_shadow: mlShadow,
+                  ml_shadow: { ...mlShadow, closes: undefined },
                 }
               });
 
