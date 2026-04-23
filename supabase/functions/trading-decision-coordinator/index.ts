@@ -4334,7 +4334,7 @@ serve(async (req) => {
 
     // Apply confidence gate (unless confidence is null or ML bypass)
     try {
-      if (!isMlSignalBuy && effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
+      if (!bypassFusionAndConfidence && effectiveConfidence !== null && effectiveConfidence < confidenceThreshold) {
         console.log("[coordinator] 🚫 Decision blocked by confidence gate", {
           symbol: intent.symbol,
           side: intent.side,
