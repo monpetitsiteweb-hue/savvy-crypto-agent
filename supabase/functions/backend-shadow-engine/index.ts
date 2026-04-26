@@ -1026,18 +1026,12 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { userId, strategyId, symbols: requestedSymbols } = body;
 
-    if (!userId) {
-      return new Response(JSON.stringify({ 
-        error: 'userId is required',
-        shadow: true 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
+    console.log(userId
+      ? `[ENGINE] Running for user: ${userId}`
+      : `[ENGINE] Running for ALL active users`);
 
     // PHASE B: Calculate effective shadow mode
     // FIXED: Remove per-user allowlist gate. All users run in LIVE mode when env is LIVE.
