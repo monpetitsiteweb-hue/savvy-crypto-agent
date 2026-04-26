@@ -139,7 +139,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('❌ admin-reconcile-cash: Unexpected error:', error);
     return new Response(
-      JSON.stringify({ success: false, error: 'unexpected_error', details: error?.message || 'unknown' }),
+      JSON.stringify({ success: false, error: 'unexpected_error', details: (error as Error)?.message || 'unknown' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
