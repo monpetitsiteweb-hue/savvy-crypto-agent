@@ -1756,6 +1756,69 @@ serve(async (req) => {
                   continue;
                 }
 
+                // ===== FEAR & GREED GUARD (BUY only, post-whale, pre-intent) =====
+                const fgCheckTrend = await checkFearGreedGuard(supabaseClient);
+                if (fgCheckTrend.blocked) {
+                  console.log(
+                    `[FG_GUARD] ${baseSymbol}: F&G=${fgCheckTrend.fg_value} (${fgCheckTrend.fg_direction}) → BUY bloqué`
+                  );
+
+                  try {
+                    await supabaseClient.from('decision_events').insert({
+                      user_id: userId,
+                      strategy_id: strategy.id,
+                      symbol: baseSymbol,
+                      side: 'HOLD',
+                      source: 'intelligent',
+                      reason: 'fg_guard_blocked',
+                      confidence: 0.85,
+                      metadata: {
+                        blocked_by: 'fg_guard',
+                        blocked_intent: 'trend_signal_buy',
+                        fg_value: fgCheckTrend.fg_value,
+                        fg_direction: fgCheckTrend.fg_direction,
+                        fg_threshold: fgCheckTrend.fg_threshold,
+                        fg_signal_at: fgCheckTrend.created_at,
+                        fg_window_min: FG_GUARD_WINDOW_MIN,
+                        execution_status: 'BLOCKED',
+                        execution_reason: 'fg_guard_blocked',
+                        ml_shadow: mlShadowForStorage,
+                        price: currentPrice,
+                      },
+                    });
+                  } catch (e) {
+                    console.warn(`[FG_GUARD] decision_events insert failed for ${baseSymbol}: ${(e as Error).message}`);
+                  }
+
+                  allDecisions.push({
+                    symbol: baseSymbol,
+                    side: 'HOLD',
+                    action: 'BLOCKED',
+                    reason: 'fg_guard_blocked',
+                    confidence: 0.85,
+                    fusionScore: undefined,
+                    wouldExecute: false,
+                    timestamp: new Date().toISOString(),
+                    metadata: {
+                      strategyId: strategy.id,
+                      strategyName: strategy.strategy_name,
+                      price: currentPrice,
+                      intent_side: 'BUY',
+                      execution_status: 'BLOCKED',
+                      execution_reason: 'fg_guard_blocked',
+                      snapshot_type: 'ENTRY',
+                      ml_shadow: mlShadowForStorage,
+                      fg_guard: {
+                        value: fgCheckTrend.fg_value,
+                        direction: fgCheckTrend.fg_direction,
+                        threshold: fgCheckTrend.fg_threshold,
+                        window_min: FG_GUARD_WINDOW_MIN,
+                      },
+                    },
+                  });
+                  continue;
+                }
+
                 const trendSignalMeta = {
                   trigger: 'trend_signal',
                   stoch_k: trend.stoch_k,
