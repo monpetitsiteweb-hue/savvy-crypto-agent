@@ -1826,6 +1826,7 @@ serve(async (req) => {
 
                 const trendSignalMeta = {
                   trigger: 'trend_signal',
+                  trend_version: 'v2_ema50',
                   stoch_k: trend.stoch_k,
                   rsi14: trend.rsi14,
                   ema9: trend.ema9,
