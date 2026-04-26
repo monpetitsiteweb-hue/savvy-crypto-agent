@@ -34,6 +34,52 @@ const SHADOW_ML_ENABLED = (Deno.env.get('SHADOW_ML_ENABLED') ?? 'true') === 'tru
 const ML_SERVICE_URL = (Deno.env.get('ML_SERVICE_URL') ?? 'https://savvy-crypto-ml-production.up.railway.app').replace(/\/+$/, '');
 const ML_SIGNAL_THRESHOLD = Number(Deno.env.get('ML_SIGNAL_THRESHOLD') ?? '0.90');
 
+// ============= WHALE GUARD CONFIG =============
+const WHALE_GUARD_ENABLED = (Deno.env.get('WHALE_GUARD_ENABLED') ?? 'true') === 'true';
+const WHALE_MIN_USD = Number(Deno.env.get('WHALE_MIN_USD') ?? '500000');
+const WHALE_GUARD_WINDOW_MIN = 30; // fenêtre fixe demandée
+
+/**
+ * WHALE GUARD — bloque un BUY si un gros exchange_inflow récent est détecté.
+ * Lecture seule sur live_signals. Fail-open en cas d'erreur DB.
+ */
+async function checkWhaleBearishGuard(
+  supabase: any,
+  baseSymbol: string
+): Promise<{ blocked: boolean; amount_usd?: number; ageMin?: number; created_at?: string }> {
+  if (!WHALE_GUARD_ENABLED) return { blocked: false };
+
+  const candidates = [baseSymbol, `${baseSymbol}-EUR`, `${baseSymbol}-USD`];
+  const sinceIso = new Date(Date.now() - WHALE_GUARD_WINDOW_MIN * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('live_signals')
+    .select('signal_type, signal_strength, data, created_at')
+    .in('symbol', candidates)
+    .in('source', ['whale_alert_ws', 'whale_alert_api'])
+    .eq('signal_type', 'whale_exchange_inflow')
+    .gt('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.warn(`[WHALE_GUARD] ${baseSymbol}: query error → fail-open (${error.message})`);
+    return { blocked: false };
+  }
+  if (!data || data.length === 0) return { blocked: false };
+
+  const row = data[0];
+  const rawAmount = row?.data?.amount_usd;
+  const amountUsd = typeof rawAmount === 'string' ? parseFloat(rawAmount) : Number(rawAmount ?? 0);
+
+  if (!Number.isFinite(amountUsd) || amountUsd <= WHALE_MIN_USD) {
+    return { blocked: false };
+  }
+
+  const ageMin = Math.round((Date.now() - new Date(row.created_at).getTime()) / 60000);
+  return { blocked: true, amount_usd: amountUsd, ageMin, created_at: row.created_at };
+}
+
 interface MlPredictResponse {
   stoch_k?: number | null;
   rsi14?: number | null;
@@ -1348,6 +1394,71 @@ serve(async (req) => {
                 `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} >= ${ML_SIGNAL_THRESHOLD} → BUY`
               );
 
+              // ===== WHALE GUARD (BUY only, pre-coordinator) =====
+              const whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+              if (whaleCheck.blocked) {
+                const usd = whaleCheck.amount_usd!;
+                const ageMin = whaleCheck.ageMin!;
+                console.log(
+                  `[WHALE_GUARD] ${baseSymbol}: exchange_inflow $${usd.toFixed(0)} USD détecté il y a ${ageMin} min → BUY bloqué`
+                );
+
+                try {
+                  await supabaseClient.from('decision_events').insert({
+                    user_id: userId,
+                    strategy_id: strategy.id,
+                    symbol: baseSymbol,
+                    side: 'HOLD',
+                    source: 'intelligent',
+                    reason: 'whale_bearish_blocked',
+                    confidence: mlShadow.ensemble_prob ?? 0.97,
+                    metadata: {
+                      blocked_by: 'whale_guard',
+                      blocked_intent: 'ml_signal_buy',
+                      whale_amount_usd: usd,
+                      whale_age_min: ageMin,
+                      whale_signal_at: whaleCheck.created_at,
+                      whale_min_usd_threshold: WHALE_MIN_USD,
+                      whale_window_min: WHALE_GUARD_WINDOW_MIN,
+                      execution_status: 'BLOCKED',
+                      execution_reason: 'whale_bearish_blocked',
+                      ml_shadow: { ...mlShadow, closes: undefined },
+                      price: currentPrice,
+                    },
+                  });
+                } catch (e) {
+                  console.warn(`[WHALE_GUARD] decision_events insert failed for ${baseSymbol}: ${(e as Error).message}`);
+                }
+
+                allDecisions.push({
+                  symbol: baseSymbol,
+                  side: 'HOLD',
+                  action: 'BLOCKED',
+                  reason: 'whale_bearish_blocked',
+                  confidence: mlShadow.ensemble_prob ?? 0.97,
+                  fusionScore: undefined,
+                  wouldExecute: false,
+                  timestamp: new Date().toISOString(),
+                  metadata: {
+                    strategyId: strategy.id,
+                    strategyName: strategy.strategy_name,
+                    price: currentPrice,
+                    intent_side: 'BUY',
+                    execution_status: 'BLOCKED',
+                    execution_reason: 'whale_bearish_blocked',
+                    snapshot_type: 'ENTRY',
+                    ml_shadow: { ...mlShadow, closes: undefined },
+                    whale_guard: {
+                      amount_usd: usd,
+                      age_min: ageMin,
+                      threshold_usd: WHALE_MIN_USD,
+                      window_min: WHALE_GUARD_WINDOW_MIN,
+                    },
+                  },
+                });
+                continue;
+              }
+
               const intent = {
                 userId,
                 strategyId: strategy.id,
@@ -1432,7 +1543,7 @@ serve(async (req) => {
                 action,
                 reason,
                 confidence: computedConfidence,
-                fusionScore: null,
+                fusionScore: undefined,
                 wouldExecute,
                 timestamp: new Date().toISOString(),
                 metadata: {
@@ -1464,6 +1575,71 @@ serve(async (req) => {
                   `ema9=${trend.ema9?.toFixed(2)} ema21=${trend.ema21?.toFixed(2)} ema50=${trend.ema50?.toFixed(2)} ` +
                   `ema200=${trend.ema200?.toFixed(2)} slope48=${trend.ema200_slope_48?.toFixed(5)} → BUY`
                 );
+
+                // ===== WHALE GUARD (BUY only, pre-coordinator) =====
+                const whaleCheckTrend = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+                if (whaleCheckTrend.blocked) {
+                  const usd = whaleCheckTrend.amount_usd!;
+                  const ageMin = whaleCheckTrend.ageMin!;
+                  console.log(
+                    `[WHALE_GUARD] ${baseSymbol}: exchange_inflow $${usd.toFixed(0)} USD détecté il y a ${ageMin} min → BUY bloqué`
+                  );
+
+                  try {
+                    await supabaseClient.from('decision_events').insert({
+                      user_id: userId,
+                      strategy_id: strategy.id,
+                      symbol: baseSymbol,
+                      side: 'HOLD',
+                      source: 'intelligent',
+                      reason: 'whale_bearish_blocked',
+                      confidence: 0.85,
+                      metadata: {
+                        blocked_by: 'whale_guard',
+                        blocked_intent: 'trend_signal_buy',
+                        whale_amount_usd: usd,
+                        whale_age_min: ageMin,
+                        whale_signal_at: whaleCheckTrend.created_at,
+                        whale_min_usd_threshold: WHALE_MIN_USD,
+                        whale_window_min: WHALE_GUARD_WINDOW_MIN,
+                        execution_status: 'BLOCKED',
+                        execution_reason: 'whale_bearish_blocked',
+                        ml_shadow: mlShadowForStorage,
+                        price: currentPrice,
+                      },
+                    });
+                  } catch (e) {
+                    console.warn(`[WHALE_GUARD] decision_events insert failed for ${baseSymbol}: ${(e as Error).message}`);
+                  }
+
+                  allDecisions.push({
+                    symbol: baseSymbol,
+                    side: 'HOLD',
+                    action: 'BLOCKED',
+                    reason: 'whale_bearish_blocked',
+                    confidence: 0.85,
+                    fusionScore: undefined,
+                    wouldExecute: false,
+                    timestamp: new Date().toISOString(),
+                    metadata: {
+                      strategyId: strategy.id,
+                      strategyName: strategy.strategy_name,
+                      price: currentPrice,
+                      intent_side: 'BUY',
+                      execution_status: 'BLOCKED',
+                      execution_reason: 'whale_bearish_blocked',
+                      snapshot_type: 'ENTRY',
+                      ml_shadow: mlShadowForStorage,
+                      whale_guard: {
+                        amount_usd: usd,
+                        age_min: ageMin,
+                        threshold_usd: WHALE_MIN_USD,
+                        window_min: WHALE_GUARD_WINDOW_MIN,
+                      },
+                    },
+                  });
+                  continue;
+                }
 
                 const trendSignalMeta = {
                   trigger: 'trend_signal',
@@ -1563,7 +1739,7 @@ serve(async (req) => {
                   action,
                   reason,
                   confidence: 0.85,
-                  fusionScore: null,
+                  fusionScore: undefined,
                   wouldExecute: wasExecuted,
                   timestamp: new Date().toISOString(),
                   metadata: {
@@ -1685,7 +1861,7 @@ serve(async (req) => {
                 action: 'HOLD',
                 reason: 'ml_filter_blocked',
                 confidence: 0,
-                fusionScore: null,
+                fusionScore: undefined,
                 wouldExecute: false,
                 timestamp: nowIso,
                 metadata: {
