@@ -343,9 +343,9 @@ function computeTrendSignal(
   const ema21  = ema21series[ema21series.length - 1];
   const ema50  = ema50series[ema50series.length - 1];
   const ema200 = ema200series[ema200series.length - 1];
-  const ema200_lagged = ema200series[ema200series.length - 1 - 48];
-  const ema200_slope_48 = (Number.isFinite(ema200_lagged) && ema200_lagged !== 0)
-    ? (ema200 - ema200_lagged) / ema200_lagged
+  const ema50_lagged = ema50series[ema50series.length - 1 - 12];
+  const ema50_slope_12 = (Number.isFinite(ema50_lagged) && ema50_lagged !== 0)
+    ? (ema50 - ema50_lagged) / ema50_lagged
     : null;
 
   const stochK = mlShadow.stoch_k;
@@ -354,22 +354,27 @@ function computeTrendSignal(
   const momentum_ok           = stochK !== null && stochK >= 80;
   const rsi_ok                = rsi14  !== null && rsi14  >= 55;
   const ema_aligned           = ema9 > ema21 && ema21 > ema50;
-  const above_ema200          = lastClose > ema200;
-  const ema200_slope_positive = ema200_slope_48 !== null && ema200_slope_48 > 0;
+  const above_ema50           = lastClose > ema50;
+  const ema50_slope_positive  = ema50_slope_12 !== null && ema50_slope_12 > 0;
 
   const failed: string[] = [];
   if (!momentum_ok)           failed.push(`stoch_k<80 (${stochK?.toFixed(1) ?? 'null'})`);
   if (!rsi_ok)                failed.push(`rsi14<55 (${rsi14?.toFixed(1) ?? 'null'})`);
   if (!ema_aligned)           failed.push(`ema_not_aligned (9=${ema9?.toFixed(2)} 21=${ema21?.toFixed(2)} 50=${ema50?.toFixed(2)})`);
-  if (!above_ema200)          failed.push(`close<=ema200 (${lastClose.toFixed(2)} vs ${ema200?.toFixed(2)})`);
-  if (!ema200_slope_positive) failed.push(`ema200_slope<=0 (${ema200_slope_48?.toFixed(5) ?? 'null'})`);
+  if (!above_ema50)           failed.push(`close<=ema50 (${lastClose.toFixed(2)} vs ${ema50?.toFixed(2)})`);
+  if (!ema50_slope_positive)  failed.push(`ema50_slope<=0 (${ema50_slope_12?.toFixed(5) ?? 'null'})`);
 
   return {
     triggered: failed.length === 0,
     stoch_k: stochK, rsi14,
-    ema9, ema21, ema50, ema200, ema200_slope_48,
+    ema9, ema21, ema50,
+    // Aliases kept for log/metadata back-compat (now reflect EMA50 logic)
+    ema200: ema50,
+    ema200_slope_48: ema50_slope_12,
     close: lastClose,
-    ema_aligned, above_ema200, ema200_slope_positive,
+    ema_aligned,
+    above_ema200: above_ema50,
+    ema200_slope_positive: ema50_slope_positive,
     momentum_ok, rsi_ok,
     failed_conditions: failed,
   };
