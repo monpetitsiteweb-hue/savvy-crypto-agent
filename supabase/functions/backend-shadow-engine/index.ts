@@ -1543,7 +1543,7 @@ serve(async (req) => {
                 action,
                 reason,
                 confidence: computedConfidence,
-                fusionScore: null,
+                fusionScore: undefined,
                 wouldExecute,
                 timestamp: new Date().toISOString(),
                 metadata: {
@@ -1739,7 +1739,7 @@ serve(async (req) => {
                   action,
                   reason,
                   confidence: 0.85,
-                  fusionScore: null,
+                  fusionScore: undefined,
                   wouldExecute: wasExecuted,
                   timestamp: new Date().toISOString(),
                   metadata: {
@@ -1861,7 +1861,7 @@ serve(async (req) => {
                 action: 'HOLD',
                 reason: 'ml_filter_blocked',
                 confidence: 0,
-                fusionScore: null,
+                fusionScore: undefined,
                 wouldExecute: false,
                 timestamp: nowIso,
                 metadata: {
