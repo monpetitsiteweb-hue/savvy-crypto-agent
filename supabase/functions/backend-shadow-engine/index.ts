@@ -1082,6 +1082,8 @@ serve(async (req) => {
 
     // Step 2: Process each strategy
     for (const strategy of strategies) {
+      // Shadow outer userId to ensure all DB operations in this iteration use the strategy owner's id (multi-user safe)
+      const userId = strategy.user_id;
       const config = strategy.configuration || {};
       const selectedCoins = requestedSymbols || config.selectedCoins || ['BTC', 'ETH'];
       
