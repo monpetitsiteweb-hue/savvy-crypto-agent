@@ -1045,13 +1045,15 @@ serve(async (req) => {
 
     console.log(`🌑 ${BACKEND_ENGINE_MODE}: Evaluating for user ${userId}, strategyId=${strategyId || 'all'}`);
 
-    // Step 1: Fetch active strategies (same as frontend)
+    // Step 1: Fetch active strategies (multi-user support: if userId omitted, fetch all)
     let strategiesQuery = supabaseClient
       .from('trading_strategies')
       .select('*')
-      .eq('user_id', userId)
       .eq('is_active', true);
-    
+
+    if (userId) {
+      strategiesQuery = strategiesQuery.eq('user_id', userId);
+    }
     if (strategyId) {
       strategiesQuery = strategiesQuery.eq('id', strategyId);
     }
