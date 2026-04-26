@@ -86,6 +86,52 @@ async function checkWhaleBearishGuard(
   return { blocked: true, amount_usd: amountUsd, ageMin, created_at: row.created_at };
 }
 
+/**
+ * FEAR & GREED GUARD — bloque un BUY si le sentiment marché est extrême.
+ * Lit la dernière valeur F&G (< 2h) depuis live_signals (source='fear_greed_index').
+ * Fail-open : si pas de donnée < 2h ou erreur DB → on laisse passer.
+ */
+async function checkFearGreedGuard(
+  supabase: any
+): Promise<{ blocked: boolean; fg_value?: number; fg_direction?: 'fear' | 'greed'; fg_threshold?: number; created_at?: string }> {
+  if (!FG_GUARD_ENABLED) return { blocked: false };
+
+  const sinceIso = new Date(Date.now() - FG_GUARD_WINDOW_MIN * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('live_signals')
+    .select('data, created_at')
+    .eq('source', 'fear_greed_index')
+    .gt('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.warn(`[FG_GUARD] query error → fail-open (${error.message})`);
+    return { blocked: false };
+  }
+  if (!data || data.length === 0) {
+    return { blocked: false };
+  }
+
+  const row = data[0];
+  const rawVal = row?.data?.fear_greed_value;
+  const fgValue = typeof rawVal === 'string' ? parseFloat(rawVal) : Number(rawVal ?? NaN);
+
+  if (!Number.isFinite(fgValue)) {
+    console.warn(`[FG_GUARD] invalid fear_greed_value → fail-open`);
+    return { blocked: false };
+  }
+
+  if (fgValue < FG_FEAR_THRESHOLD) {
+    return { blocked: true, fg_value: fgValue, fg_direction: 'fear', fg_threshold: FG_FEAR_THRESHOLD, created_at: row.created_at };
+  }
+  if (fgValue > FG_GREED_THRESHOLD) {
+    return { blocked: true, fg_value: fgValue, fg_direction: 'greed', fg_threshold: FG_GREED_THRESHOLD, created_at: row.created_at };
+  }
+  return { blocked: false };
+}
+
 interface MlPredictResponse {
   stoch_k?: number | null;
   rsi14?: number | null;
