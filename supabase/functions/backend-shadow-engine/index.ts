@@ -1026,18 +1026,12 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { userId, strategyId, symbols: requestedSymbols } = body;
 
-    if (!userId) {
-      return new Response(JSON.stringify({ 
-        error: 'userId is required',
-        shadow: true 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
+    console.log(userId
+      ? `[ENGINE] Running for user: ${userId}`
+      : `[ENGINE] Running for ALL active users`);
 
     // PHASE B: Calculate effective shadow mode
     // FIXED: Remove per-user allowlist gate. All users run in LIVE mode when env is LIVE.
@@ -1051,13 +1045,15 @@ serve(async (req) => {
 
     console.log(`🌑 ${BACKEND_ENGINE_MODE}: Evaluating for user ${userId}, strategyId=${strategyId || 'all'}`);
 
-    // Step 1: Fetch active strategies (same as frontend)
+    // Step 1: Fetch active strategies (multi-user support: if userId omitted, fetch all)
     let strategiesQuery = supabaseClient
       .from('trading_strategies')
       .select('*')
-      .eq('user_id', userId)
       .eq('is_active', true);
-    
+
+    if (userId) {
+      strategiesQuery = strategiesQuery.eq('user_id', userId);
+    }
     if (strategyId) {
       strategiesQuery = strategiesQuery.eq('id', strategyId);
     }
@@ -1086,6 +1082,8 @@ serve(async (req) => {
 
     // Step 2: Process each strategy
     for (const strategy of strategies) {
+      // Shadow outer userId to ensure all DB operations in this iteration use the strategy owner's id (multi-user safe)
+      const userId = strategy.user_id;
       const config = strategy.configuration || {};
       const selectedCoins = requestedSymbols || config.selectedCoins || ['BTC', 'ETH'];
       
