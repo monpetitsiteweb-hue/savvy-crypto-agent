@@ -1951,6 +1951,7 @@ serve(async (req) => {
 
               const trendSignalMetaHold = {
                 trigger: 'trend_signal',
+                trend_version: 'v2_ema50',
                 triggered: false,
                 failed_conditions: trend.failed_conditions,
                 stoch_k: trend.stoch_k,
