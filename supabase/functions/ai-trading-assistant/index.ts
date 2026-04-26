@@ -1645,6 +1645,11 @@ class ConfigManager {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     
+    // Sync state with is_active to prevent UI/engine desync
+    if ('is_active' in strategyUpdates) {
+      strategyUpdates.state = strategyUpdates.is_active ? 'ACTIVE' : 'PAUSED';
+    }
+    
     const { data: updatedStrategy, error: updateError } = await supabase
       .from('trading_strategies')
       .update(strategyUpdates)
