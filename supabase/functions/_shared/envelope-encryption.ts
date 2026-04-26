@@ -79,7 +79,7 @@ function getKEK(version: number): Uint8Array {
 
 // Import key for AES-GCM
 async function importKey(keyBytes: Uint8Array): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  return crypto.subtle.importKey("raw", keyBytes as BufferSource, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 // Generate random bytes
@@ -122,7 +122,7 @@ export async function encryptPrivateKey(privateKeyHex: string, kekVersion: numbe
   const iv = randomBytes(12);
   const dekKey = await importKey(dek);
 
-  const encryptedPrivateKeyWithTag = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, dekKey, privateKeyBytes);
+  const encryptedPrivateKeyWithTag = await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, dekKey, privateKeyBytes as BufferSource);
 
   const encryptedPrivateKeyFull = new Uint8Array(encryptedPrivateKeyWithTag);
   const encrypted_private_key = encryptedPrivateKeyFull.slice(0, -16);
@@ -133,7 +133,7 @@ export async function encryptPrivateKey(privateKeyHex: string, kekVersion: numbe
   const dek_iv = randomBytes(12);
   const kekKey = await importKey(kek);
 
-  const encryptedDekWithTag = await crypto.subtle.encrypt({ name: "AES-GCM", iv: dek_iv }, kekKey, dek);
+  const encryptedDekWithTag = await crypto.subtle.encrypt({ name: "AES-GCM", iv: dek_iv as BufferSource }, kekKey, dek as BufferSource);
 
   const encryptedDekFull = new Uint8Array(encryptedDekWithTag);
   const encrypted_dek = encryptedDekFull.slice(0, -16);
@@ -175,9 +175,9 @@ export async function decryptPrivateKey(encryptedData: {
   const encryptedDekWithTag = new Uint8Array([...encryptedData.encrypted_dek, ...encryptedData.dek_auth_tag]);
 
   const dekBytes = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: encryptedData.dek_iv },
+    { name: "AES-GCM", iv: encryptedData.dek_iv as BufferSource },
     kekKey,
-    encryptedDekWithTag,
+    encryptedDekWithTag as BufferSource,
   );
 
   const dek = new Uint8Array(dekBytes);
@@ -190,9 +190,9 @@ export async function decryptPrivateKey(encryptedData: {
   ]);
 
   const privateKeyBytes = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: encryptedData.iv },
+    { name: "AES-GCM", iv: encryptedData.iv as BufferSource },
     dekKey,
-    encryptedPrivateKeyWithTag,
+    encryptedPrivateKeyWithTag as BufferSource,
   );
 
   const privateKey = "0x" + bytesToHex(new Uint8Array(privateKeyBytes));

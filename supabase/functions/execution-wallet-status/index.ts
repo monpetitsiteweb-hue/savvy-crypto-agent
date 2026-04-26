@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('[execution-wallet-status] Error:', error.message);
+    console.error('[execution-wallet-status] Error:', (error as Error)?.message);
     return new Response(
       JSON.stringify({ error: 'Internal server error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
