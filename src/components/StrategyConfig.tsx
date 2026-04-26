@@ -253,7 +253,8 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
           description: `Clone of ${strategy.strategy_name}`,
           configuration: configWithCanonicalKeys,
           test_mode: true,
-          is_active: false
+          is_active: false,
+          state: 'PAUSED'
         });
 
       if (error) throw error;
