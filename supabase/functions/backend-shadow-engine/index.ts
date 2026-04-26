@@ -1693,7 +1693,7 @@ serve(async (req) => {
                 console.log(
                   `[TREND_SIGNAL] ${symbol}: stoch_k=${trend.stoch_k?.toFixed(1)} rsi14=${trend.rsi14?.toFixed(1)} ` +
                   `ema9=${trend.ema9?.toFixed(2)} ema21=${trend.ema21?.toFixed(2)} ema50=${trend.ema50?.toFixed(2)} ` +
-                  `ema200=${trend.ema200?.toFixed(2)} slope48=${trend.ema200_slope_48?.toFixed(5)} → BUY`
+                  `ema50=${trend.ema200?.toFixed(2)} slope12=${trend.ema200_slope_48?.toFixed(5)} → BUY`
                 );
 
                 // ===== WHALE GUARD (BUY only, pre-coordinator) =====
