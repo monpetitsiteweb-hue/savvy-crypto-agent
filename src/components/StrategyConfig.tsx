@@ -180,7 +180,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       if (!currentValue) {
         await (supabase as any)
           .from('trading_strategies')
-          .update({ is_active: false })
+          .update({ is_active: false, state: 'PAUSED' })
           .eq('user_id', user.id)
           .eq('test_mode', isTest)
           .neq('id', strategy.id);
@@ -188,7 +188,7 @@ export const StrategyConfig: React.FC<StrategyConfigProps> = ({ onLayoutChange }
       
       const { error } = await supabase
         .from('trading_strategies')
-        .update({ is_active: !currentValue })
+        .update({ is_active: !currentValue, state: !currentValue ? 'ACTIVE' : 'PAUSED' })
         .eq('id', strategy.id)
         .eq('user_id', user.id);
 
