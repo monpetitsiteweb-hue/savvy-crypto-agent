@@ -39,6 +39,12 @@ const WHALE_GUARD_ENABLED = (Deno.env.get('WHALE_GUARD_ENABLED') ?? 'true') === 
 const WHALE_MIN_USD = Number(Deno.env.get('WHALE_MIN_USD') ?? '500000');
 const WHALE_GUARD_WINDOW_MIN = 30; // fenêtre fixe demandée
 
+// ============= FEAR & GREED GUARD CONFIG =============
+const FG_GUARD_ENABLED = (Deno.env.get('FG_GUARD_ENABLED') ?? 'true') === 'true';
+const FG_FEAR_THRESHOLD = Number(Deno.env.get('FG_FEAR_THRESHOLD') ?? '15');
+const FG_GREED_THRESHOLD = Number(Deno.env.get('FG_GREED_THRESHOLD') ?? '85');
+const FG_GUARD_WINDOW_MIN = 120; // 2h
+
 /**
  * WHALE GUARD — bloque un BUY si un gros exchange_inflow récent est détecté.
  * Lecture seule sur live_signals. Fail-open en cas d'erreur DB.
@@ -78,6 +84,52 @@ async function checkWhaleBearishGuard(
 
   const ageMin = Math.round((Date.now() - new Date(row.created_at).getTime()) / 60000);
   return { blocked: true, amount_usd: amountUsd, ageMin, created_at: row.created_at };
+}
+
+/**
+ * FEAR & GREED GUARD — bloque un BUY si le sentiment marché est extrême.
+ * Lit la dernière valeur F&G (< 2h) depuis live_signals (source='fear_greed_index').
+ * Fail-open : si pas de donnée < 2h ou erreur DB → on laisse passer.
+ */
+async function checkFearGreedGuard(
+  supabase: any
+): Promise<{ blocked: boolean; fg_value?: number; fg_direction?: 'fear' | 'greed'; fg_threshold?: number; created_at?: string }> {
+  if (!FG_GUARD_ENABLED) return { blocked: false };
+
+  const sinceIso = new Date(Date.now() - FG_GUARD_WINDOW_MIN * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('live_signals')
+    .select('data, created_at')
+    .eq('source', 'fear_greed_index')
+    .gt('created_at', sinceIso)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.warn(`[FG_GUARD] query error → fail-open (${error.message})`);
+    return { blocked: false };
+  }
+  if (!data || data.length === 0) {
+    return { blocked: false };
+  }
+
+  const row = data[0];
+  const rawVal = row?.data?.fear_greed_value;
+  const fgValue = typeof rawVal === 'string' ? parseFloat(rawVal) : Number(rawVal ?? NaN);
+
+  if (!Number.isFinite(fgValue)) {
+    console.warn(`[FG_GUARD] invalid fear_greed_value → fail-open`);
+    return { blocked: false };
+  }
+
+  if (fgValue < FG_FEAR_THRESHOLD) {
+    return { blocked: true, fg_value: fgValue, fg_direction: 'fear', fg_threshold: FG_FEAR_THRESHOLD, created_at: row.created_at };
+  }
+  if (fgValue > FG_GREED_THRESHOLD) {
+    return { blocked: true, fg_value: fgValue, fg_direction: 'greed', fg_threshold: FG_GREED_THRESHOLD, created_at: row.created_at };
+  }
+  return { blocked: false };
 }
 
 interface MlPredictResponse {
@@ -1459,6 +1511,69 @@ serve(async (req) => {
                 continue;
               }
 
+              // ===== FEAR & GREED GUARD (BUY only, post-whale, pre-intent) =====
+              const fgCheck = await checkFearGreedGuard(supabaseClient);
+              if (fgCheck.blocked) {
+                console.log(
+                  `[FG_GUARD] ${baseSymbol}: F&G=${fgCheck.fg_value} (${fgCheck.fg_direction}) → BUY bloqué`
+                );
+
+                try {
+                  await supabaseClient.from('decision_events').insert({
+                    user_id: userId,
+                    strategy_id: strategy.id,
+                    symbol: baseSymbol,
+                    side: 'HOLD',
+                    source: 'intelligent',
+                    reason: 'fg_guard_blocked',
+                    confidence: mlShadow.ensemble_prob ?? 0.97,
+                    metadata: {
+                      blocked_by: 'fg_guard',
+                      blocked_intent: 'ml_signal_buy',
+                      fg_value: fgCheck.fg_value,
+                      fg_direction: fgCheck.fg_direction,
+                      fg_threshold: fgCheck.fg_threshold,
+                      fg_signal_at: fgCheck.created_at,
+                      fg_window_min: FG_GUARD_WINDOW_MIN,
+                      execution_status: 'BLOCKED',
+                      execution_reason: 'fg_guard_blocked',
+                      ml_shadow: { ...mlShadow, closes: undefined },
+                      price: currentPrice,
+                    },
+                  });
+                } catch (e) {
+                  console.warn(`[FG_GUARD] decision_events insert failed for ${baseSymbol}: ${(e as Error).message}`);
+                }
+
+                allDecisions.push({
+                  symbol: baseSymbol,
+                  side: 'HOLD',
+                  action: 'BLOCKED',
+                  reason: 'fg_guard_blocked',
+                  confidence: mlShadow.ensemble_prob ?? 0.97,
+                  fusionScore: undefined,
+                  wouldExecute: false,
+                  timestamp: new Date().toISOString(),
+                  metadata: {
+                    strategyId: strategy.id,
+                    strategyName: strategy.strategy_name,
+                    price: currentPrice,
+                    intent_side: 'BUY',
+                    execution_status: 'BLOCKED',
+                    execution_reason: 'fg_guard_blocked',
+                    snapshot_type: 'ENTRY',
+                    ml_shadow: { ...mlShadow, closes: undefined },
+                    fg_guard: {
+                      value: fgCheck.fg_value,
+                      direction: fgCheck.fg_direction,
+                      threshold: fgCheck.fg_threshold,
+                      window_min: FG_GUARD_WINDOW_MIN,
+                    },
+                  },
+                });
+                continue;
+              }
+
               const intent = {
                 userId,
                 strategyId: strategy.id,
@@ -1635,6 +1750,69 @@ serve(async (req) => {
                         age_min: ageMin,
                         threshold_usd: WHALE_MIN_USD,
                         window_min: WHALE_GUARD_WINDOW_MIN,
+                      },
+                    },
+                  });
+                  continue;
+                }
+
+                // ===== FEAR & GREED GUARD (BUY only, post-whale, pre-intent) =====
+                const fgCheckTrend = await checkFearGreedGuard(supabaseClient);
+                if (fgCheckTrend.blocked) {
+                  console.log(
+                    `[FG_GUARD] ${baseSymbol}: F&G=${fgCheckTrend.fg_value} (${fgCheckTrend.fg_direction}) → BUY bloqué`
+                  );
+
+                  try {
+                    await supabaseClient.from('decision_events').insert({
+                      user_id: userId,
+                      strategy_id: strategy.id,
+                      symbol: baseSymbol,
+                      side: 'HOLD',
+                      source: 'intelligent',
+                      reason: 'fg_guard_blocked',
+                      confidence: 0.85,
+                      metadata: {
+                        blocked_by: 'fg_guard',
+                        blocked_intent: 'trend_signal_buy',
+                        fg_value: fgCheckTrend.fg_value,
+                        fg_direction: fgCheckTrend.fg_direction,
+                        fg_threshold: fgCheckTrend.fg_threshold,
+                        fg_signal_at: fgCheckTrend.created_at,
+                        fg_window_min: FG_GUARD_WINDOW_MIN,
+                        execution_status: 'BLOCKED',
+                        execution_reason: 'fg_guard_blocked',
+                        ml_shadow: mlShadowForStorage,
+                        price: currentPrice,
+                      },
+                    });
+                  } catch (e) {
+                    console.warn(`[FG_GUARD] decision_events insert failed for ${baseSymbol}: ${(e as Error).message}`);
+                  }
+
+                  allDecisions.push({
+                    symbol: baseSymbol,
+                    side: 'HOLD',
+                    action: 'BLOCKED',
+                    reason: 'fg_guard_blocked',
+                    confidence: 0.85,
+                    fusionScore: undefined,
+                    wouldExecute: false,
+                    timestamp: new Date().toISOString(),
+                    metadata: {
+                      strategyId: strategy.id,
+                      strategyName: strategy.strategy_name,
+                      price: currentPrice,
+                      intent_side: 'BUY',
+                      execution_status: 'BLOCKED',
+                      execution_reason: 'fg_guard_blocked',
+                      snapshot_type: 'ENTRY',
+                      ml_shadow: mlShadowForStorage,
+                      fg_guard: {
+                        value: fgCheckTrend.fg_value,
+                        direction: fgCheckTrend.fg_direction,
+                        threshold: fgCheckTrend.fg_threshold,
+                        window_min: FG_GUARD_WINDOW_MIN,
                       },
                     },
                   });
