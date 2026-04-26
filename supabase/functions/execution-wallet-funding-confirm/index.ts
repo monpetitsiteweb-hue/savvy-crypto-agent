@@ -215,11 +215,11 @@ Deno.serve(async (req) => {
           });
         }
       } catch (error) {
-        console.error(`[execution-wallet-funding-confirm] Error processing ${request.id}:`, error.message);
+        console.error(`[execution-wallet-funding-confirm] Error processing ${request.id}:`, (error as Error)?.message);
         results.push({
           request_id: request.id,
           status: 'error',
-          error: error.message,
+          error: (error as Error)?.message,
         });
       }
     }
@@ -240,9 +240,9 @@ Deno.serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('[execution-wallet-funding-confirm] Error:', error.message);
+    console.error('[execution-wallet-funding-confirm] Error:', (error as Error)?.message);
     return new Response(
-      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      JSON.stringify({ error: 'Internal server error', details: (error as Error)?.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
