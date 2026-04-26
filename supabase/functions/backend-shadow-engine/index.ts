@@ -1436,7 +1436,7 @@ serve(async (req) => {
                   action: 'BLOCKED',
                   reason: 'whale_bearish_blocked',
                   confidence: mlShadow.ensemble_prob ?? 0.97,
-                  fusionScore: null,
+                  fusionScore: undefined,
                   wouldExecute: false,
                   timestamp: new Date().toISOString(),
                   metadata: {
@@ -1618,7 +1618,7 @@ serve(async (req) => {
                     action: 'BLOCKED',
                     reason: 'whale_bearish_blocked',
                     confidence: 0.85,
-                    fusionScore: null,
+                    fusionScore: undefined,
                     wouldExecute: false,
                     timestamp: new Date().toISOString(),
                     metadata: {
