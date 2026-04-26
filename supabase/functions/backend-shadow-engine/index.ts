@@ -39,6 +39,12 @@ const WHALE_GUARD_ENABLED = (Deno.env.get('WHALE_GUARD_ENABLED') ?? 'true') === 
 const WHALE_MIN_USD = Number(Deno.env.get('WHALE_MIN_USD') ?? '500000');
 const WHALE_GUARD_WINDOW_MIN = 30; // fenêtre fixe demandée
 
+// ============= FEAR & GREED GUARD CONFIG =============
+const FG_GUARD_ENABLED = (Deno.env.get('FG_GUARD_ENABLED') ?? 'true') === 'true';
+const FG_FEAR_THRESHOLD = Number(Deno.env.get('FG_FEAR_THRESHOLD') ?? '15');
+const FG_GREED_THRESHOLD = Number(Deno.env.get('FG_GREED_THRESHOLD') ?? '85');
+const FG_GUARD_WINDOW_MIN = 120; // 2h
+
 /**
  * WHALE GUARD — bloque un BUY si un gros exchange_inflow récent est détecté.
  * Lecture seule sur live_signals. Fail-open en cas d'erreur DB.
