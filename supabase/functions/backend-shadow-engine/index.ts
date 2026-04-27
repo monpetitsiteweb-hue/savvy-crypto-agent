@@ -32,7 +32,7 @@ const BACKEND_ENGINE_MODE: EngineMode =
 // ============= SHADOW ML (Railway /predict service) =============
 const SHADOW_ML_ENABLED = (Deno.env.get('SHADOW_ML_ENABLED') ?? 'true') === 'true';
 const ML_SERVICE_URL = (Deno.env.get('ML_SERVICE_URL') ?? 'https://savvy-crypto-ml-production.up.railway.app').replace(/\/+$/, '');
-const ML_SIGNAL_THRESHOLD = Number(Deno.env.get('ML_SIGNAL_THRESHOLD') ?? '0.90');
+const ML_SIGNAL_THRESHOLD = Number(Deno.env.get('ML_SIGNAL_THRESHOLD') ?? '0.94');
 
 // ============= WHALE GUARD CONFIG =============
 const WHALE_GUARD_ENABLED = (Deno.env.get('WHALE_GUARD_ENABLED') ?? 'true') === 'true';
