@@ -20,8 +20,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          echo "🌑 SHADOW ENGINE: Triggering scheduled shadow evaluation..."
-          echo "Mode: SHADOW (no trades will be inserted)"
+          echo "🚀 BACKEND ENGINE: Triggering scheduled evaluation..."
+          echo "Mode: LIVE (trades will be executed if conditions are met)"
           echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           
           # Default symbol list
@@ -67,7 +67,7 @@ jobs:
             
             echo "📦 Request body: $JSON_BODY"
             
-            # Invoke backend-shadow-engine with SHADOW mode
+            # Invoke backend-shadow-engine in LIVE mode
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
               "${SUPABASE_URL}/functions/v1/backend-shadow-engine" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
@@ -107,4 +107,4 @@ jobs:
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "✅ All users processed"
-          echo "⚠️  SHADOW MODE: No trades were inserted to mock_trades"
+          echo "✅ All evaluations complete — trades executed if conditions were met"
