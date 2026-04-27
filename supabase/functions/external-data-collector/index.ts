@@ -419,7 +419,28 @@ async function syncFearGreedIndex(supabaseClient: any, source: any) {
           processed: false
         });
       }
-      
+
+      // Neutral zone (41-59): emit observability signal, non-blocking
+      if (fgValue >= 41 && fgValue <= 59) {
+        signals.push({
+          source_id: source.id,
+          user_id: source.user_id,
+          timestamp: new Date().toISOString(),
+          symbol: 'ALL',
+          signal_type: 'fear_greed_neutral',
+          signal_strength: fgValue,
+          source: 'fear_greed_index',
+          data: {
+            fear_greed_value: fgValue,
+            classification: fearGreedData.value_classification ?? 'Neutral',
+            market_sentiment: 'neutral',
+            suggested_action: 'observe',
+            description: 'Neutral market sentiment — no directional bias from F&G'
+          },
+          processed: false
+        });
+      }
+
       // Insert signals if any were generated
       if (signals.length > 0) {
         const { error: signalError } = await supabaseClient
