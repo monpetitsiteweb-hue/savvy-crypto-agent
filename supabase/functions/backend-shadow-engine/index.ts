@@ -1760,7 +1760,7 @@ serve(async (req) => {
             } else {
               // ===== ML says NO → HOLD (trend signal kept for observability only, never triggers BUY) =====
               const trend = computeTrendSignal(symbol, mlShadow);
-              const mlShadowForStorage = { ...mlShadow, closes: undefined };
+              // mlShadowEnriched (hoisted) used below — preserves closes:undefined to keep snapshot small
 
               console.log(
                 `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} < ${ML_SIGNAL_THRESHOLD} → blocked`
@@ -1803,7 +1803,7 @@ serve(async (req) => {
                     entry_price: currentPrice,
                     decision_ts: nowIso,
                     metadata: {
-                      ml_shadow: mlShadowForStorage,
+                      ml_shadow: mlShadowEnriched,
                       trend_signal: trendSignalMetaHold,
                       engine: 'intelligent',
                       context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
@@ -1842,7 +1842,7 @@ serve(async (req) => {
                     fusion_score: null,
                     market_context_json: {
                       entry_price: currentPrice,
-                      ml_shadow: mlShadowForStorage,
+                      ml_shadow: mlShadowEnriched,
                       ml_signal_threshold: ML_SIGNAL_THRESHOLD,
                       ensemble_prob: ensembleProb,
                       trend_signal: trendSignalMetaHold,
@@ -1877,7 +1877,7 @@ serve(async (req) => {
                   execution_status: 'BLOCKED',
                   execution_reason: 'ml_filter_blocked',
                   snapshot_type: 'ENTRY',
-                  ml_shadow: mlShadowForStorage,
+                  ml_shadow: mlShadowEnriched,
                   trend_signal: trendSignalMetaHold,
                 }
               });
@@ -1910,7 +1910,8 @@ serve(async (req) => {
               origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
               eurAmount: tradeAllocation,
               horizon: config.decisionCadence || '1h',
-              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
+              ...(mlShadowEnriched ? { ml_shadow: mlShadowEnriched } : (mlShadow ? { ml_shadow: { ...mlShadow, closes: undefined, ml_signal_threshold: ML_SIGNAL_THRESHOLD } } : {})),
+              ml_signal_threshold: ML_SIGNAL_THRESHOLD,
             },
             ts: new Date().toISOString(),
             idempotencyKey,
@@ -1995,7 +1996,8 @@ serve(async (req) => {
               intent_side: 'BUY',
               snapshot_type: 'ENTRY',
               snapshot_source: 'coordinator',
-              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
+              ...(mlShadowEnriched ? { ml_shadow: mlShadowEnriched } : (mlShadow ? { ml_shadow: { ...mlShadow, closes: undefined, ml_signal_threshold: ML_SIGNAL_THRESHOLD } } : {})),
+              ml_signal_threshold: ML_SIGNAL_THRESHOLD,
             }
           });
 
