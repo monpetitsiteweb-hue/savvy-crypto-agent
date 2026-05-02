@@ -46,15 +46,28 @@ const FG_GREED_THRESHOLD = Number(Deno.env.get('FG_GREED_THRESHOLD') ?? '85');
 const FG_GUARD_WINDOW_MIN = 120; // 2h
 
 /**
- * WHALE GUARD — bloque un BUY si un gros exchange_inflow récent est détecté.
- * Lecture seule sur live_signals. Fail-open en cas d'erreur DB.
+ * WHALE GUARD — détecte un gros exchange_inflow récent.
+ *
+ * SHADOW MODE: la fonction calcule TOUJOURS would_block pour observabilité,
+ * mais ne retourne blocked=true que si WHALE_GUARD_ENABLED=true.
+ *
+ * DÉDUP: si le même whale_signal_at a déjà bloqué le symbole dans la dernière
+ * heure, on retourne dedup_skipped=true (pas de re-blocage).
+ *
+ * Lecture seule sur live_signals + decision_events. Fail-open en cas d'erreur DB.
  */
 async function checkWhaleBearishGuard(
   supabase: any,
   baseSymbol: string
-): Promise<{ blocked: boolean; amount_usd?: number; ageMin?: number; created_at?: string }> {
-  if (!WHALE_GUARD_ENABLED) return { blocked: false };
-
+): Promise<{
+  blocked: boolean;
+  would_block: boolean;
+  amount_usd?: number;
+  ageMin?: number;
+  created_at?: string;
+  dedup_skipped?: boolean;
+  guard_enabled: boolean;
+}> {
   const candidates = [baseSymbol, `${baseSymbol}-EUR`, `${baseSymbol}-USD`];
   const sinceIso = new Date(Date.now() - WHALE_GUARD_WINDOW_MIN * 60 * 1000).toISOString();
 
@@ -70,20 +83,54 @@ async function checkWhaleBearishGuard(
 
   if (error) {
     console.warn(`[WHALE_GUARD] ${baseSymbol}: query error → fail-open (${error.message})`);
-    return { blocked: false };
+    return { blocked: false, would_block: false, guard_enabled: WHALE_GUARD_ENABLED };
   }
-  if (!data || data.length === 0) return { blocked: false };
+  if (!data || data.length === 0) {
+    return { blocked: false, would_block: false, guard_enabled: WHALE_GUARD_ENABLED };
+  }
 
   const row = data[0];
   const rawAmount = row?.data?.amount_usd;
   const amountUsd = typeof rawAmount === 'string' ? parseFloat(rawAmount) : Number(rawAmount ?? 0);
 
   if (!Number.isFinite(amountUsd) || amountUsd <= WHALE_MIN_USD) {
-    return { blocked: false };
+    return { blocked: false, would_block: false, guard_enabled: WHALE_GUARD_ENABLED };
   }
 
   const ageMin = Math.round((Date.now() - new Date(row.created_at).getTime()) / 60000);
-  return { blocked: true, amount_usd: amountUsd, ageMin, created_at: row.created_at };
+  const wouldBlock = true;
+
+  // DÉDUP: vérifie si ce même whale_signal_at a déjà bloqué ce symbole < 1h
+  let dedupSkipped = false;
+  try {
+    const dedupSinceIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data: dedupRows } = await supabase
+      .from('decision_events')
+      .select('id')
+      .eq('symbol', baseSymbol)
+      .eq('reason', 'whale_bearish_blocked')
+      .gt('created_at', dedupSinceIso)
+      .contains('metadata', { whale_signal_at: row.created_at })
+      .limit(1);
+    if (dedupRows && dedupRows.length > 0) {
+      dedupSkipped = true;
+    }
+  } catch (e) {
+    console.warn(`[WHALE_GUARD] ${baseSymbol}: dedup query failed → fail-open (${(e as Error).message})`);
+  }
+
+  // blocked=true seulement si guard ON ET pas dédupliqué
+  const blocked = WHALE_GUARD_ENABLED && !dedupSkipped;
+
+  return {
+    blocked,
+    would_block: wouldBlock,
+    amount_usd: amountUsd,
+    ageMin,
+    created_at: row.created_at,
+    dedup_skipped: dedupSkipped,
+    guard_enabled: WHALE_GUARD_ENABLED,
+  };
 }
 
 /**
@@ -1443,14 +1490,40 @@ serve(async (req) => {
             const ensembleProb = mlShadow.ensemble_prob ?? 0;
             const mlSignalBuy = ensembleProb >= ML_SIGNAL_THRESHOLD;
 
+            // ===== WHALE CHECK (one call, reused for shadow + blocking) =====
+            const whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+            const whaleShadowMeta = {
+              would_block: whaleCheck.would_block,
+              amount_usd: whaleCheck.amount_usd ?? null,
+              age_min: whaleCheck.ageMin ?? null,
+              signal_at: whaleCheck.created_at ?? null,
+              dedup_skipped: whaleCheck.dedup_skipped ?? false,
+              guard_enabled: whaleCheck.guard_enabled,
+              threshold_usd: WHALE_MIN_USD,
+              window_min: WHALE_GUARD_WINDOW_MIN,
+            };
+
+            // Enrich mlShadow with threshold + whale shadow for traceability
+            const mlShadowEnriched = {
+              ...mlShadow,
+              closes: undefined,
+              ml_signal_threshold: ML_SIGNAL_THRESHOLD,
+              whale_shadow: whaleShadowMeta,
+            };
+
             if (mlSignalBuy) {
               // ===== ML SIGNAL BUY: bypass coordinator entirely =====
               console.log(
                 `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} >= ${ML_SIGNAL_THRESHOLD} → BUY`
               );
 
-              // ===== WHALE GUARD (BUY only, pre-coordinator) =====
-              const whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+              if (whaleCheck.would_block) {
+                console.log(
+                  `[WHALE_SHADOW] ${baseSymbol}: would_block=true (amount=$${whaleCheck.amount_usd?.toFixed(0)}, age=${whaleCheck.ageMin}min, dedup=${whaleCheck.dedup_skipped}, guard_enabled=${whaleCheck.guard_enabled})`
+                );
+              }
+
+              // ===== WHALE GUARD (BUY only, pre-coordinator) — only blocks if guard ON =====
               if (whaleCheck.blocked) {
                 const usd = whaleCheck.amount_usd!;
                 const ageMin = whaleCheck.ageMin!;
@@ -1477,7 +1550,7 @@ serve(async (req) => {
                       whale_window_min: WHALE_GUARD_WINDOW_MIN,
                       execution_status: 'BLOCKED',
                       execution_reason: 'whale_bearish_blocked',
-                      ml_shadow: { ...mlShadow, closes: undefined },
+                      ml_shadow: mlShadowEnriched,
                       price: currentPrice,
                     },
                   });
@@ -1502,7 +1575,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: 'whale_bearish_blocked',
                     snapshot_type: 'ENTRY',
-                    ml_shadow: { ...mlShadow, closes: undefined },
+                    ml_shadow: mlShadowEnriched,
                     whale_guard: {
                       amount_usd: usd,
                       age_min: ageMin,
@@ -1540,7 +1613,7 @@ serve(async (req) => {
                       fg_window_min: FG_GUARD_WINDOW_MIN,
                       execution_status: 'BLOCKED',
                       execution_reason: 'fg_guard_blocked',
-                      ml_shadow: { ...mlShadow, closes: undefined },
+                      ml_shadow: mlShadowEnriched,
                       price: currentPrice,
                     },
                   });
@@ -1565,7 +1638,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: 'fg_guard_blocked',
                     snapshot_type: 'ENTRY',
-                    ml_shadow: { ...mlShadow, closes: undefined },
+                    ml_shadow: mlShadowEnriched,
                     fg_guard: {
                       value: fgCheck.fg_value,
                       direction: fgCheck.fg_direction,
@@ -1597,7 +1670,7 @@ serve(async (req) => {
                   origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                   eurAmount: tradeAllocation,
                   horizon: config.decisionCadence || '1h',
-                  ml_shadow: { ...mlShadow, closes: undefined },
+                  ml_shadow: mlShadowEnriched,
                 },
                 ts: new Date().toISOString(),
                 idempotencyKey,
@@ -1629,7 +1702,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
                     snapshot_type: 'ENTRY',
-                    ml_shadow: { ...mlShadow, closes: undefined },
+                    ml_shadow: mlShadowEnriched,
                   }
                 });
                 continue;
@@ -1672,7 +1745,7 @@ serve(async (req) => {
                   execution_status,
                   execution_reason,
                   snapshot_type: 'ENTRY',
-                  ml_shadow: { ...mlShadow, closes: undefined },
+                  ml_shadow: mlShadowEnriched,
                 }
               });
 
