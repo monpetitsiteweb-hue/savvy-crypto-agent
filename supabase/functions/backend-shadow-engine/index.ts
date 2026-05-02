@@ -46,15 +46,28 @@ const FG_GREED_THRESHOLD = Number(Deno.env.get('FG_GREED_THRESHOLD') ?? '85');
 const FG_GUARD_WINDOW_MIN = 120; // 2h
 
 /**
- * WHALE GUARD — bloque un BUY si un gros exchange_inflow récent est détecté.
- * Lecture seule sur live_signals. Fail-open en cas d'erreur DB.
+ * WHALE GUARD — détecte un gros exchange_inflow récent.
+ *
+ * SHADOW MODE: la fonction calcule TOUJOURS would_block pour observabilité,
+ * mais ne retourne blocked=true que si WHALE_GUARD_ENABLED=true.
+ *
+ * DÉDUP: si le même whale_signal_at a déjà bloqué le symbole dans la dernière
+ * heure, on retourne dedup_skipped=true (pas de re-blocage).
+ *
+ * Lecture seule sur live_signals + decision_events. Fail-open en cas d'erreur DB.
  */
 async function checkWhaleBearishGuard(
   supabase: any,
   baseSymbol: string
-): Promise<{ blocked: boolean; amount_usd?: number; ageMin?: number; created_at?: string }> {
-  if (!WHALE_GUARD_ENABLED) return { blocked: false };
-
+): Promise<{
+  blocked: boolean;
+  would_block: boolean;
+  amount_usd?: number;
+  ageMin?: number;
+  created_at?: string;
+  dedup_skipped?: boolean;
+  guard_enabled: boolean;
+}> {
   const candidates = [baseSymbol, `${baseSymbol}-EUR`, `${baseSymbol}-USD`];
   const sinceIso = new Date(Date.now() - WHALE_GUARD_WINDOW_MIN * 60 * 1000).toISOString();
 
@@ -70,20 +83,54 @@ async function checkWhaleBearishGuard(
 
   if (error) {
     console.warn(`[WHALE_GUARD] ${baseSymbol}: query error → fail-open (${error.message})`);
-    return { blocked: false };
+    return { blocked: false, would_block: false, guard_enabled: WHALE_GUARD_ENABLED };
   }
-  if (!data || data.length === 0) return { blocked: false };
+  if (!data || data.length === 0) {
+    return { blocked: false, would_block: false, guard_enabled: WHALE_GUARD_ENABLED };
+  }
 
   const row = data[0];
   const rawAmount = row?.data?.amount_usd;
   const amountUsd = typeof rawAmount === 'string' ? parseFloat(rawAmount) : Number(rawAmount ?? 0);
 
   if (!Number.isFinite(amountUsd) || amountUsd <= WHALE_MIN_USD) {
-    return { blocked: false };
+    return { blocked: false, would_block: false, guard_enabled: WHALE_GUARD_ENABLED };
   }
 
   const ageMin = Math.round((Date.now() - new Date(row.created_at).getTime()) / 60000);
-  return { blocked: true, amount_usd: amountUsd, ageMin, created_at: row.created_at };
+  const wouldBlock = true;
+
+  // DÉDUP: vérifie si ce même whale_signal_at a déjà bloqué ce symbole < 1h
+  let dedupSkipped = false;
+  try {
+    const dedupSinceIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data: dedupRows } = await supabase
+      .from('decision_events')
+      .select('id')
+      .eq('symbol', baseSymbol)
+      .eq('reason', 'whale_bearish_blocked')
+      .gt('created_at', dedupSinceIso)
+      .contains('metadata', { whale_signal_at: row.created_at })
+      .limit(1);
+    if (dedupRows && dedupRows.length > 0) {
+      dedupSkipped = true;
+    }
+  } catch (e) {
+    console.warn(`[WHALE_GUARD] ${baseSymbol}: dedup query failed → fail-open (${(e as Error).message})`);
+  }
+
+  // blocked=true seulement si guard ON ET pas dédupliqué
+  const blocked = WHALE_GUARD_ENABLED && !dedupSkipped;
+
+  return {
+    blocked,
+    would_block: wouldBlock,
+    amount_usd: amountUsd,
+    ageMin,
+    created_at: row.created_at,
+    dedup_skipped: dedupSkipped,
+    guard_enabled: WHALE_GUARD_ENABLED,
+  };
 }
 
 /**
