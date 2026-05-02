@@ -1483,16 +1483,13 @@ serve(async (req) => {
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
 
-          // ML decision: ensemble_prob >= ML_SIGNAL_THRESHOLD → BUY, else → HOLD
-          // Ignores the boolean signal field from Railway — uses probability threshold only
-          // If ML service is down (error/fallback) → fall through to coordinator as safety net
-          if (mlShadow && !mlShadow.error) {
-            const ensembleProb = mlShadow.ensemble_prob ?? 0;
-            const mlSignalBuy = ensembleProb >= ML_SIGNAL_THRESHOLD;
-
-            // ===== WHALE CHECK (one call, reused for shadow + blocking) =====
-            const whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
-            const whaleShadowMeta = {
+          // ===== WHALE CHECK + ML SHADOW ENRICHMENT (hoisted, used in BUY/HOLD/fallback) =====
+          let whaleCheck: Awaited<ReturnType<typeof checkWhaleBearishGuard>> | null = null;
+          let whaleShadowMeta: any = null;
+          let mlShadowEnriched: any = null;
+          if (mlShadow) {
+            whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+            whaleShadowMeta = {
               would_block: whaleCheck.would_block,
               amount_usd: whaleCheck.amount_usd ?? null,
               age_min: whaleCheck.ageMin ?? null,
@@ -1502,14 +1499,20 @@ serve(async (req) => {
               threshold_usd: WHALE_MIN_USD,
               window_min: WHALE_GUARD_WINDOW_MIN,
             };
-
-            // Enrich mlShadow with threshold + whale shadow for traceability
-            const mlShadowEnriched = {
+            mlShadowEnriched = {
               ...mlShadow,
               closes: undefined,
               ml_signal_threshold: ML_SIGNAL_THRESHOLD,
               whale_shadow: whaleShadowMeta,
             };
+          }
+
+          // ML decision: ensemble_prob >= ML_SIGNAL_THRESHOLD → BUY, else → HOLD
+          // Ignores the boolean signal field from Railway — uses probability threshold only
+          // If ML service is down (error/fallback) → fall through to coordinator as safety net
+          if (mlShadow && !mlShadow.error && whaleCheck) {
+            const ensembleProb = mlShadow.ensemble_prob ?? 0;
+            const mlSignalBuy = ensembleProb >= ML_SIGNAL_THRESHOLD;
 
             if (mlSignalBuy) {
               // ===== ML SIGNAL BUY: bypass coordinator entirely =====
@@ -1757,7 +1760,7 @@ serve(async (req) => {
             } else {
               // ===== ML says NO → HOLD (trend signal kept for observability only, never triggers BUY) =====
               const trend = computeTrendSignal(symbol, mlShadow);
-              const mlShadowForStorage = { ...mlShadow, closes: undefined };
+              // mlShadowEnriched (hoisted) used below — preserves closes:undefined to keep snapshot small
 
               console.log(
                 `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} < ${ML_SIGNAL_THRESHOLD} → blocked`
@@ -1800,7 +1803,7 @@ serve(async (req) => {
                     entry_price: currentPrice,
                     decision_ts: nowIso,
                     metadata: {
-                      ml_shadow: mlShadowForStorage,
+                      ml_shadow: mlShadowEnriched,
                       trend_signal: trendSignalMetaHold,
                       engine: 'intelligent',
                       context: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
@@ -1839,7 +1842,7 @@ serve(async (req) => {
                     fusion_score: null,
                     market_context_json: {
                       entry_price: currentPrice,
-                      ml_shadow: mlShadowForStorage,
+                      ml_shadow: mlShadowEnriched,
                       ml_signal_threshold: ML_SIGNAL_THRESHOLD,
                       ensemble_prob: ensembleProb,
                       trend_signal: trendSignalMetaHold,
@@ -1874,7 +1877,7 @@ serve(async (req) => {
                   execution_status: 'BLOCKED',
                   execution_reason: 'ml_filter_blocked',
                   snapshot_type: 'ENTRY',
-                  ml_shadow: mlShadowForStorage,
+                  ml_shadow: mlShadowEnriched,
                   trend_signal: trendSignalMetaHold,
                 }
               });
@@ -1907,7 +1910,8 @@ serve(async (req) => {
               origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
               eurAmount: tradeAllocation,
               horizon: config.decisionCadence || '1h',
-              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
+              ...(mlShadowEnriched ? { ml_shadow: mlShadowEnriched } : (mlShadow ? { ml_shadow: { ...mlShadow, closes: undefined, ml_signal_threshold: ML_SIGNAL_THRESHOLD } } : {})),
+              ml_signal_threshold: ML_SIGNAL_THRESHOLD,
             },
             ts: new Date().toISOString(),
             idempotencyKey,
@@ -1992,7 +1996,8 @@ serve(async (req) => {
               intent_side: 'BUY',
               snapshot_type: 'ENTRY',
               snapshot_source: 'coordinator',
-              ...(mlShadow ? { ml_shadow: mlShadow } : {}),
+              ...(mlShadowEnriched ? { ml_shadow: mlShadowEnriched } : (mlShadow ? { ml_shadow: { ...mlShadow, closes: undefined, ml_signal_threshold: ML_SIGNAL_THRESHOLD } } : {})),
+              ml_signal_threshold: ML_SIGNAL_THRESHOLD,
             }
           });
 
