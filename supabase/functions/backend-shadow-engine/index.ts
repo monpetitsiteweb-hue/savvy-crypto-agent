@@ -1613,7 +1613,7 @@ serve(async (req) => {
                       fg_window_min: FG_GUARD_WINDOW_MIN,
                       execution_status: 'BLOCKED',
                       execution_reason: 'fg_guard_blocked',
-                      ml_shadow: { ...mlShadow, closes: undefined },
+                      ml_shadow: mlShadowEnriched,
                       price: currentPrice,
                     },
                   });
@@ -1638,7 +1638,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: 'fg_guard_blocked',
                     snapshot_type: 'ENTRY',
-                    ml_shadow: { ...mlShadow, closes: undefined },
+                    ml_shadow: mlShadowEnriched,
                     fg_guard: {
                       value: fgCheck.fg_value,
                       direction: fgCheck.fg_direction,
@@ -1670,7 +1670,7 @@ serve(async (req) => {
                   origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
                   eurAmount: tradeAllocation,
                   horizon: config.decisionCadence || '1h',
-                  ml_shadow: { ...mlShadow, closes: undefined },
+                  ml_shadow: mlShadowEnriched,
                 },
                 ts: new Date().toISOString(),
                 idempotencyKey,
@@ -1702,7 +1702,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
                     snapshot_type: 'ENTRY',
-                    ml_shadow: { ...mlShadow, closes: undefined },
+                    ml_shadow: mlShadowEnriched,
                   }
                 });
                 continue;
@@ -1745,7 +1745,7 @@ serve(async (req) => {
                   execution_status,
                   execution_reason,
                   snapshot_type: 'ENTRY',
-                  ml_shadow: { ...mlShadow, closes: undefined },
+                  ml_shadow: mlShadowEnriched,
                 }
               });
 
