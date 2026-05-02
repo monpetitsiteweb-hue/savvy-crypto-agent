@@ -1490,14 +1490,40 @@ serve(async (req) => {
             const ensembleProb = mlShadow.ensemble_prob ?? 0;
             const mlSignalBuy = ensembleProb >= ML_SIGNAL_THRESHOLD;
 
+            // ===== WHALE CHECK (one call, reused for shadow + blocking) =====
+            const whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+            const whaleShadowMeta = {
+              would_block: whaleCheck.would_block,
+              amount_usd: whaleCheck.amount_usd ?? null,
+              age_min: whaleCheck.ageMin ?? null,
+              signal_at: whaleCheck.created_at ?? null,
+              dedup_skipped: whaleCheck.dedup_skipped ?? false,
+              guard_enabled: whaleCheck.guard_enabled,
+              threshold_usd: WHALE_MIN_USD,
+              window_min: WHALE_GUARD_WINDOW_MIN,
+            };
+
+            // Enrich mlShadow with threshold + whale shadow for traceability
+            const mlShadowEnriched = {
+              ...mlShadow,
+              closes: undefined,
+              ml_signal_threshold: ML_SIGNAL_THRESHOLD,
+              whale_shadow: whaleShadowMeta,
+            };
+
             if (mlSignalBuy) {
               // ===== ML SIGNAL BUY: bypass coordinator entirely =====
               console.log(
                 `[ML_FILTER] ${symbol}: ensemble_prob=${ensembleProb.toFixed(4)} >= ${ML_SIGNAL_THRESHOLD} → BUY`
               );
 
-              // ===== WHALE GUARD (BUY only, pre-coordinator) =====
-              const whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+              if (whaleCheck.would_block) {
+                console.log(
+                  `[WHALE_SHADOW] ${baseSymbol}: would_block=true (amount=$${whaleCheck.amount_usd?.toFixed(0)}, age=${whaleCheck.ageMin}min, dedup=${whaleCheck.dedup_skipped}, guard_enabled=${whaleCheck.guard_enabled})`
+                );
+              }
+
+              // ===== WHALE GUARD (BUY only, pre-coordinator) — only blocks if guard ON =====
               if (whaleCheck.blocked) {
                 const usd = whaleCheck.amount_usd!;
                 const ageMin = whaleCheck.ageMin!;
@@ -1524,7 +1550,7 @@ serve(async (req) => {
                       whale_window_min: WHALE_GUARD_WINDOW_MIN,
                       execution_status: 'BLOCKED',
                       execution_reason: 'whale_bearish_blocked',
-                      ml_shadow: { ...mlShadow, closes: undefined },
+                      ml_shadow: mlShadowEnriched,
                       price: currentPrice,
                     },
                   });
@@ -1549,7 +1575,7 @@ serve(async (req) => {
                     execution_status: 'BLOCKED',
                     execution_reason: 'whale_bearish_blocked',
                     snapshot_type: 'ENTRY',
-                    ml_shadow: { ...mlShadow, closes: undefined },
+                    ml_shadow: mlShadowEnriched,
                     whale_guard: {
                       amount_usd: usd,
                       age_min: ageMin,
