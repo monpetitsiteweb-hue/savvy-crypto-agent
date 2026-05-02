@@ -1483,16 +1483,13 @@ serve(async (req) => {
           const timestamp = Date.now();
           const idempotencyKey = `live_${userId}_${strategy.id}_${baseSymbol}_${timestamp}`;
 
-          // ML decision: ensemble_prob >= ML_SIGNAL_THRESHOLD → BUY, else → HOLD
-          // Ignores the boolean signal field from Railway — uses probability threshold only
-          // If ML service is down (error/fallback) → fall through to coordinator as safety net
-          if (mlShadow && !mlShadow.error) {
-            const ensembleProb = mlShadow.ensemble_prob ?? 0;
-            const mlSignalBuy = ensembleProb >= ML_SIGNAL_THRESHOLD;
-
-            // ===== WHALE CHECK (one call, reused for shadow + blocking) =====
-            const whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
-            const whaleShadowMeta = {
+          // ===== WHALE CHECK + ML SHADOW ENRICHMENT (hoisted, used in BUY/HOLD/fallback) =====
+          let whaleCheck: Awaited<ReturnType<typeof checkWhaleBearishGuard>> | null = null;
+          let whaleShadowMeta: any = null;
+          let mlShadowEnriched: any = null;
+          if (mlShadow) {
+            whaleCheck = await checkWhaleBearishGuard(supabaseClient, baseSymbol);
+            whaleShadowMeta = {
               would_block: whaleCheck.would_block,
               amount_usd: whaleCheck.amount_usd ?? null,
               age_min: whaleCheck.ageMin ?? null,
@@ -1502,14 +1499,20 @@ serve(async (req) => {
               threshold_usd: WHALE_MIN_USD,
               window_min: WHALE_GUARD_WINDOW_MIN,
             };
-
-            // Enrich mlShadow with threshold + whale shadow for traceability
-            const mlShadowEnriched = {
+            mlShadowEnriched = {
               ...mlShadow,
               closes: undefined,
               ml_signal_threshold: ML_SIGNAL_THRESHOLD,
               whale_shadow: whaleShadowMeta,
             };
+          }
+
+          // ML decision: ensemble_prob >= ML_SIGNAL_THRESHOLD → BUY, else → HOLD
+          // Ignores the boolean signal field from Railway — uses probability threshold only
+          // If ML service is down (error/fallback) → fall through to coordinator as safety net
+          if (mlShadow && !mlShadow.error && whaleCheck) {
+            const ensembleProb = mlShadow.ensemble_prob ?? 0;
+            const mlSignalBuy = ensembleProb >= ML_SIGNAL_THRESHOLD;
 
             if (mlSignalBuy) {
               // ===== ML SIGNAL BUY: bypass coordinator entirely =====
