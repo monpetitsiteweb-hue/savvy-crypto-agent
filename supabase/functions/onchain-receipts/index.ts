@@ -1077,7 +1077,22 @@ async function finalizeMockTradeAndSettle(params: {
     return { ok: true, reason: 'already_finalized' };
   }
 
-  // ── Decode swap economics from receipt ────────────────────────────────
+  // ── Strategy ID fallback : recover from mock_trades if missing on real_trades ──
+  if (!strategyId) {
+    const { data: mockRow } = await supabase
+      .from('mock_trades')
+      .select('strategy_id')
+      .eq('id', mockTradeId)
+      .maybeSingle();
+    if (mockRow?.strategy_id) {
+      strategyId = mockRow.strategy_id as string;
+      console.log('STRATEGY_ID_FALLBACK_RESOLVED', { mockTradeId, strategyId });
+    } else {
+      console.error('STRATEGY_ID_FALLBACK_FAILED', { mockTradeId });
+    }
+  }
+
+
   let decoded: DecodeResult;
   try {
     decoded = decodeSwapFromReceipt(receipt, symbol, side);
