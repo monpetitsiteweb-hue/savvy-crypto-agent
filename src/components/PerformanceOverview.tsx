@@ -82,12 +82,12 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       // ENGINE_TRADE when we are in REAL mode. In TEST mode this gate is bypassed.
       let realConfirmedIds: Set<string> | null = null;
       if (!testMode) {
-        const { data: confirmedReal, error: rErr } = await supabase
+        const { data: confirmedReal, error: rErr } = await ((supabase as any)
           .from('real_trades')
           .select('trade_id')
           .eq('user_id', user.id)
           .eq('execution_status', 'CONFIRMED')
-          .eq('trade_role', 'ENGINE_TRADE');
+          .eq('trade_role', 'ENGINE_TRADE'));
         if (rErr) throw rErr;
         realConfirmedIds = new Set((confirmedReal || []).map((r: any) => r.trade_id));
       }
