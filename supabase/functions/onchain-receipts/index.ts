@@ -345,6 +345,10 @@ async function getReceipt(chainId: number, txHash: string) {
   }
 }
 
+// ⚠️ DEAD CODE (T1bis) — kept for reference only.
+// The canonical pipeline is `pollAndFinalizeRealTrade` + `finalizeMockTradeAndSettle`.
+// `processReceipt` is no longer invoked by the Deno.serve handler. Safe to remove
+// in a follow-up cleanup once T1bis is verified in production.
 async function processReceipt(trade: any) {
   // CRITICAL: Extract is_system_operator from trade record - this is the durable execution class
   const { id: tradeId, chain_id, tx_hash, provider, symbol, side, user_id, strategy_id, idempotency_key, is_system_operator } = trade;
@@ -1033,6 +1037,170 @@ async function processReceipt(trade: any) {
  * - RPC polling happens ONLY if tx_hash is present
  * - Writes happen ONLY to real_trades
  */
+// ============================================================================
+// T1bis: Finalize the mock_trades placeholder + trigger settlement
+// Called after a real_trades row transitions SUBMITTED → CONFIRMED.
+// Idempotent: skips if mock_trade is already confirmed AND settled.
+// ============================================================================
+async function finalizeMockTradeAndSettle(params: {
+  mockTradeId: string;
+  realTrade: any;
+  receipt: any;
+  blockTimestamp: string;
+}): Promise<{ ok: boolean; reason?: string; error?: string }> {
+  const { mockTradeId, realTrade, receipt, blockTimestamp } = params;
+  const txHash: string = realTrade.tx_hash;
+  const symbol: string = realTrade.cryptocurrency || '';
+  const side: string = (realTrade.side || 'BUY').toUpperCase();
+  const userId: string = realTrade.user_id;
+  const strategyId: string | null = realTrade.strategy_id ?? null;
+  const chainId: number = realTrade.chain_id;
+  const provider: string | null = realTrade.provider ?? null;
+  const isSystemOperator: boolean = realTrade.is_system_operator === true;
+
+  // ── Idempotence applicative : skip si déjà finalisé ───────────────────
+  const { data: existingMock } = await supabase
+    .from('mock_trades')
+    .select('execution_confirmed, settlement_status')
+    .eq('id', mockTradeId)
+    .maybeSingle();
+
+  if (
+    existingMock?.execution_confirmed === true &&
+    existingMock?.settlement_status === 'SETTLED'
+  ) {
+    console.log('MOCK_TRADE_FINALIZE_SKIPPED', {
+      mockTradeId,
+      reason: 'already_finalized',
+      txHash,
+    });
+    return { ok: true, reason: 'already_finalized' };
+  }
+
+  // ── Decode swap economics from receipt ────────────────────────────────
+  let decoded: DecodeResult;
+  try {
+    decoded = decodeSwapFromReceipt(receipt, symbol, side);
+  } catch (decodeErr) {
+    console.error('MOCK_TRADE_DECODE_FAILED', {
+      mockTradeId,
+      txHash,
+      error: (decodeErr as Error).message,
+    });
+    return { ok: false, error: 'decode_exception' };
+  }
+
+  if (!decoded.success) {
+    console.error('MOCK_TRADE_DECODE_FAILED', {
+      mockTradeId,
+      txHash,
+      error: decoded.error,
+      decode_method: decoded.decodeMethod,
+    });
+    return { ok: false, error: decoded.error || 'decode_failed' };
+  }
+
+  const filledAmount = decoded.filledAmount;
+  const executedPrice = decoded.executedPrice;
+  const totalValue = decoded.totalValue;
+
+  const gasUsedDec = receipt.gasUsed ? parseInt(receipt.gasUsed, 16) : 0;
+  const effectiveGasPrice = receipt.effectiveGasPrice
+    ? parseInt(receipt.effectiveGasPrice, 16)
+    : 0;
+  const gasCostEth =
+    Number(BigInt(gasUsedDec) * BigInt(effectiveGasPrice)) / 1e18;
+
+  // ── Update the mock_trades placeholder → CONFIRMED ────────────────────
+  // NOTE: `purchase_price` does NOT exist on mock_trades — canonical column is `price`.
+  const { error: updateError } = await supabase
+    .from('mock_trades')
+    .update({
+      amount: filledAmount,
+      price: executedPrice,
+      total_value: totalValue,
+      execution_confirmed: true,
+      execution_source: 'onchain_confirmed',
+      execution_ts: blockTimestamp,
+      executed_at: blockTimestamp,
+      tx_hash: txHash,
+      chain_id: chainId,
+      gas_cost_eth: gasCostEth,
+      notes: `On-chain execution confirmed | tx:${txHash?.substring(0, 10)}... | provider:${provider || 'unknown'} | decoded:${decoded.decodeMethod}`,
+    })
+    .eq('id', mockTradeId);
+
+  if (updateError) {
+    console.error('MOCK_TRADE_FINALIZE_FAILED', {
+      mockTradeId,
+      txHash,
+      error: updateError.message,
+    });
+    return { ok: false, error: updateError.message };
+  }
+
+  console.log('MOCK_TRADE_FINALIZED', {
+    mockTradeId,
+    txHash: txHash?.substring(0, 16),
+    side,
+    symbol,
+    amount: filledAmount,
+    price: executedPrice,
+    decode_method: decoded.decodeMethod,
+  });
+
+  // ── Trigger settlement (best-effort, never fail the caller) ───────────
+  try {
+    const settlementUrl = `${PROJECT_URL}/functions/v1/onchain-settlement`;
+    const settlementRes = await fetch(settlementUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_ROLE}`,
+      },
+      body: JSON.stringify({
+        mockTradeId,
+        side,
+        symbol,
+        userId,
+        strategyId,
+        actualAmount: filledAmount,
+        actualPrice: executedPrice,
+        totalValueEur: totalValue,
+        gasCostEur: gasCostEth,
+        txHash,
+      }),
+    });
+    const settlementResult = await settlementRes.json();
+    if (settlementResult.ok) {
+      console.log('MOCK_TRADE_SETTLED', {
+        mockTradeId,
+        side,
+        result: settlementResult,
+      });
+    } else {
+      console.error('MOCK_TRADE_SETTLEMENT_FAILED', {
+        mockTradeId,
+        side,
+        error: settlementResult.error,
+        txHash,
+      });
+    }
+  } catch (settlementErr) {
+    console.error('MOCK_TRADE_SETTLEMENT_FAILED', {
+      mockTradeId,
+      side,
+      error:
+        settlementErr instanceof Error
+          ? settlementErr.message
+          : String(settlementErr),
+      txHash,
+    });
+  }
+
+  return { ok: true };
+}
+
 async function pollAndFinalizeRealTrade(realTrade: any) {
   const tradeId: string = realTrade.trade_id;
   const chainId: number = realTrade.chain_id;
@@ -1093,6 +1261,59 @@ async function pollAndFinalizeRealTrade(realTrade: any) {
     execution_status: nextExecutionStatus,
     chain_id: chainId,
   });
+
+  // ── T1bis: extend pipeline ─────────────────────────────────────────
+  // 3a. Resolve blockTimestamp from receipt
+  const blockTimestamp = receipt.blockTimestamp
+    ? new Date(parseInt(receipt.blockTimestamp, 16) * 1000).toISOString()
+    : new Date().toISOString();
+
+  if (txSuccess) {
+    // 3b. Lookup the linked mock_trades placeholder via real_trades.trade_id
+    //     The coordinator stores the mock_trades.id into real_trades.trade_id
+    //     (placeholder pattern). If absent, fall back to idempotency_key match.
+    let mockTradeId: string | null = null;
+
+    const { data: mockById } = await supabase
+      .from('mock_trades')
+      .select('id')
+      .eq('id', tradeId)
+      .maybeSingle();
+
+    if (mockById?.id) {
+      mockTradeId = mockById.id;
+    } else {
+      const { data: mockByKey } = await supabase
+        .from('mock_trades')
+        .select('id')
+        .eq('idempotency_key', `pending_${tradeId}`)
+        .maybeSingle();
+      mockTradeId = mockByKey?.id ?? null;
+    }
+
+    if (!mockTradeId) {
+      console.error('MOCK_TRADE_PLACEHOLDER_NOT_FOUND', {
+        tradeId,
+        tx_hash: txHash,
+      });
+    } else {
+      // 3c + 3d. Finalize placeholder and trigger settlement
+      await finalizeMockTradeAndSettle({
+        mockTradeId,
+        realTrade,
+        receipt,
+        blockTimestamp,
+      });
+    }
+  } else {
+    // T1bis: log reverted txs explicitly (no settlement, no mock finalize)
+    console.log('MOCK_TRADE_REVERTED', {
+      tradeId,
+      tx_hash: txHash,
+      block_number: receipt.blockNumber,
+      gas_used: receipt.gasUsed,
+    });
+  }
 
   return {
     tradeId,
@@ -1180,13 +1401,88 @@ Deno.serve(async (req) => {
       realTradesToPoll = rows || [];
     }
 
+    // ── Pass A: standard SUBMITTED → CONFIRMED/REVERTED ────────────────
     const results = await Promise.all(realTradesToPoll.map(pollAndFinalizeRealTrade));
+
+    // ── Pass B (batch only): orphan scan ───────────────────────────────
+    // Find real_trades already CONFIRMED whose linked mock_trades placeholder
+    // is still NOT finalized (execution_confirmed = false). This recovers the
+    // ghost trades caused by the previous bug where pollAndFinalizeRealTrade
+    // never finalized the mock_trades row.
+    const orphanResults: any[] = [];
+    if (!tradeId) {
+      const { data: confirmedReals, error: orphanErr } = await supabase
+        .from('real_trades')
+        .select('*')
+        .eq('execution_status', 'CONFIRMED')
+        .eq('receipt_status', true)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (orphanErr) {
+        console.error('ORPHAN_SCAN_DB_ERROR', { error: orphanErr.message });
+      } else if (confirmedReals && confirmedReals.length > 0) {
+        for (const rt of confirmedReals) {
+          const linkedMockId: string | null = rt.trade_id ?? null;
+          if (!linkedMockId) continue;
+
+          const { data: mockRow } = await supabase
+            .from('mock_trades')
+            .select('id, execution_confirmed, settlement_status')
+            .eq('id', linkedMockId)
+            .maybeSingle();
+
+          if (!mockRow) continue;
+          if (
+            mockRow.execution_confirmed === true &&
+            mockRow.settlement_status === 'SETTLED'
+          ) {
+            continue;
+          }
+
+          // Re-fetch receipt to get fresh logs for decoding
+          const { receipt: orphanReceipt, error: orphanRpcErr } = await getReceipt(
+            rt.chain_id,
+            rt.tx_hash,
+          );
+          if (orphanRpcErr || !orphanReceipt) {
+            console.error('ORPHAN_RECEIPT_FETCH_FAILED', {
+              tradeId: rt.trade_id,
+              tx_hash: rt.tx_hash,
+              error: orphanRpcErr,
+            });
+            continue;
+          }
+
+          const blockTimestamp = orphanReceipt.blockTimestamp
+            ? new Date(parseInt(orphanReceipt.blockTimestamp, 16) * 1000).toISOString()
+            : new Date().toISOString();
+
+          console.log('ORPHAN_RECOVERY_ATTEMPT', {
+            mockTradeId: linkedMockId,
+            tx_hash: rt.tx_hash,
+            execution_confirmed: mockRow.execution_confirmed,
+            settlement_status: mockRow.settlement_status,
+          });
+
+          const r = await finalizeMockTradeAndSettle({
+            mockTradeId: linkedMockId,
+            realTrade: rt,
+            receipt: orphanReceipt,
+            blockTimestamp,
+          });
+          orphanResults.push({ mockTradeId: linkedMockId, tx_hash: rt.tx_hash, ...r });
+        }
+      }
+    }
 
     return new Response(
       JSON.stringify({
         ok: true,
         polled: results.length,
         results,
+        orphan_recovered: orphanResults.length,
+        orphan_results: orphanResults,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
