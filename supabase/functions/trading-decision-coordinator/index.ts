@@ -3456,6 +3456,8 @@ serve(async (req) => {
               // Pass system_operator_mode flag for auto-wrap policy
               system_operator_mode: isSystemOperatorMode,
               mock_trade_id: mockTradeId, // PHASE 3B: Pass to link real_trades FK
+              user_id: intent.userId,         // PHASE 3C: Ensure user_id propagation to real_trades
+              strategy_id: intent.strategyId, // PHASE 3C: Ensure strategy_id propagation to real_trades
             }),
           });
 
