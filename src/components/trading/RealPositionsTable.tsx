@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { RefreshCw, Loader2 } from 'lucide-react';
 import { useOpenTrades } from '@/hooks/useOpenTrades';
 import { useHoldingsPrices } from '@/hooks/useHoldingsPrices';
+import { useTradesGas } from '@/hooks/useTradesGas';
 import { OpenTradeCard } from '@/components/trading/OpenTradeCard';
 import { toBaseSymbol, toPairSymbol } from '@/utils/symbols';
 import type { RealPositionRow } from '@/types/trading';
@@ -29,6 +30,7 @@ interface RealPositionsTableProps {
 export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
   const { openTrades, isLoading, refresh } = useOpenTrades();
   const { holdingsPrices, isLoadingPrices } = useHoldingsPrices(openTrades);
+  const { gasByTradeId } = useTradesGas(openTrades.map(t => t.id));
 
   const resolvePrice = (symbol: string): number | null => {
     const base = toBaseSymbol(symbol);
@@ -85,6 +87,7 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
             key={trade.id}
             trade={trade}
             livePrice={resolvePrice(trade.cryptocurrency)}
+            gasOverride={gasByTradeId[trade.id] ?? { gasEth: 0, gasEur: 0 }}
           />
         ))}
       </div>

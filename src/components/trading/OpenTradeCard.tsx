@@ -18,9 +18,11 @@ interface OpenTradeCardProps {
   onRequestSell?: (trade: OpenTrade) => void;
   /** Live price passed from parent (from canonical price source) */
   livePrice?: number | null;
+  /** Optional on-chain gas override (REAL mode). Replaces the "Fee" cell with "Gas". */
+  gasOverride?: { gasEth: number; gasEur: number } | null;
 }
 
-export function OpenTradeCard({ trade, onRequestSell, livePrice }: OpenTradeCardProps) {
+export function OpenTradeCard({ trade, onRequestSell, livePrice, gasOverride }: OpenTradeCardProps) {
   // Compute cost basis using CANONICAL formula
   const costBasis = computeCostBasis(trade.amount, trade.price, trade.fees || 0);
   
@@ -86,10 +88,14 @@ export function OpenTradeCard({ trade, onRequestSell, livePrice }: OpenTradeCard
           </p>
         </div>
         
-        {/* Fee */}
+        {/* Fee or Gas (REAL mode shows on-chain gas) */}
         <div>
-          <p className="text-muted-foreground">Fee</p>
-          <p className="font-medium">{formatEuro(trade.fees)}</p>
+          <p className="text-muted-foreground">{gasOverride ? 'Gas' : 'Fee'}</p>
+          <p className="font-medium">
+            {gasOverride
+              ? <>{formatEuro(gasOverride.gasEur)} <span className="text-xs text-muted-foreground">({gasOverride.gasEth.toFixed(8)} ETH)</span></>
+              : formatEuro(trade.fees)}
+          </p>
         </div>
       </div>
       
