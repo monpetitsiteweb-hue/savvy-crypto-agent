@@ -1053,7 +1053,7 @@ async function finalizeMockTradeAndSettle(params: {
   const symbol: string = realTrade.cryptocurrency || '';
   const side: string = (realTrade.side || 'BUY').toUpperCase();
   const userId: string = realTrade.user_id;
-  const strategyId: string | null = realTrade.strategy_id ?? null;
+  let strategyId: string | null = realTrade.strategy_id ?? null;
   const chainId: number = realTrade.chain_id;
   const provider: string | null = realTrade.provider ?? null;
   const isSystemOperator: boolean = realTrade.is_system_operator === true;
