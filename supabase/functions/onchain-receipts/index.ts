@@ -1033,6 +1033,170 @@ async function processReceipt(trade: any) {
  * - RPC polling happens ONLY if tx_hash is present
  * - Writes happen ONLY to real_trades
  */
+// ============================================================================
+// T1bis: Finalize the mock_trades placeholder + trigger settlement
+// Called after a real_trades row transitions SUBMITTED → CONFIRMED.
+// Idempotent: skips if mock_trade is already confirmed AND settled.
+// ============================================================================
+async function finalizeMockTradeAndSettle(params: {
+  mockTradeId: string;
+  realTrade: any;
+  receipt: any;
+  blockTimestamp: string;
+}): Promise<{ ok: boolean; reason?: string; error?: string }> {
+  const { mockTradeId, realTrade, receipt, blockTimestamp } = params;
+  const txHash: string = realTrade.tx_hash;
+  const symbol: string = realTrade.cryptocurrency || '';
+  const side: string = (realTrade.side || 'BUY').toUpperCase();
+  const userId: string = realTrade.user_id;
+  const strategyId: string | null = realTrade.strategy_id ?? null;
+  const chainId: number = realTrade.chain_id;
+  const provider: string | null = realTrade.provider ?? null;
+  const isSystemOperator: boolean = realTrade.is_system_operator === true;
+
+  // ── Idempotence applicative : skip si déjà finalisé ───────────────────
+  const { data: existingMock } = await supabase
+    .from('mock_trades')
+    .select('execution_confirmed, settlement_status')
+    .eq('id', mockTradeId)
+    .maybeSingle();
+
+  if (
+    existingMock?.execution_confirmed === true &&
+    existingMock?.settlement_status === 'SETTLED'
+  ) {
+    console.log('MOCK_TRADE_FINALIZE_SKIPPED', {
+      mockTradeId,
+      reason: 'already_finalized',
+      txHash,
+    });
+    return { ok: true, reason: 'already_finalized' };
+  }
+
+  // ── Decode swap economics from receipt ────────────────────────────────
+  let decoded: DecodeResult;
+  try {
+    decoded = decodeSwapFromReceipt(receipt, symbol, side);
+  } catch (decodeErr) {
+    console.error('MOCK_TRADE_DECODE_FAILED', {
+      mockTradeId,
+      txHash,
+      error: (decodeErr as Error).message,
+    });
+    return { ok: false, error: 'decode_exception' };
+  }
+
+  if (!decoded.success) {
+    console.error('MOCK_TRADE_DECODE_FAILED', {
+      mockTradeId,
+      txHash,
+      error: decoded.error,
+      decode_method: decoded.decodeMethod,
+    });
+    return { ok: false, error: decoded.error || 'decode_failed' };
+  }
+
+  const filledAmount = decoded.filledAmount;
+  const executedPrice = decoded.executedPrice;
+  const totalValue = decoded.totalValue;
+
+  const gasUsedDec = receipt.gasUsed ? parseInt(receipt.gasUsed, 16) : 0;
+  const effectiveGasPrice = receipt.effectiveGasPrice
+    ? parseInt(receipt.effectiveGasPrice, 16)
+    : 0;
+  const gasCostEth =
+    Number(BigInt(gasUsedDec) * BigInt(effectiveGasPrice)) / 1e18;
+
+  // ── Update the mock_trades placeholder → CONFIRMED ────────────────────
+  // NOTE: `purchase_price` does NOT exist on mock_trades — canonical column is `price`.
+  const { error: updateError } = await supabase
+    .from('mock_trades')
+    .update({
+      amount: filledAmount,
+      price: executedPrice,
+      total_value: totalValue,
+      execution_confirmed: true,
+      execution_source: 'onchain_confirmed',
+      execution_ts: blockTimestamp,
+      executed_at: blockTimestamp,
+      tx_hash: txHash,
+      chain_id: chainId,
+      gas_cost_eth: gasCostEth,
+      notes: `On-chain execution confirmed | tx:${txHash?.substring(0, 10)}... | provider:${provider || 'unknown'} | decoded:${decoded.decodeMethod}`,
+    })
+    .eq('id', mockTradeId);
+
+  if (updateError) {
+    console.error('MOCK_TRADE_FINALIZE_FAILED', {
+      mockTradeId,
+      txHash,
+      error: updateError.message,
+    });
+    return { ok: false, error: updateError.message };
+  }
+
+  console.log('MOCK_TRADE_FINALIZED', {
+    mockTradeId,
+    txHash: txHash?.substring(0, 16),
+    side,
+    symbol,
+    amount: filledAmount,
+    price: executedPrice,
+    decode_method: decoded.decodeMethod,
+  });
+
+  // ── Trigger settlement (best-effort, never fail the caller) ───────────
+  try {
+    const settlementUrl = `${PROJECT_URL}/functions/v1/onchain-settlement`;
+    const settlementRes = await fetch(settlementUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SERVICE_ROLE}`,
+      },
+      body: JSON.stringify({
+        mockTradeId,
+        side,
+        symbol,
+        userId,
+        strategyId,
+        actualAmount: filledAmount,
+        actualPrice: executedPrice,
+        totalValueEur: totalValue,
+        gasCostEur: gasCostEth,
+        txHash,
+      }),
+    });
+    const settlementResult = await settlementRes.json();
+    if (settlementResult.ok) {
+      console.log('MOCK_TRADE_SETTLED', {
+        mockTradeId,
+        side,
+        result: settlementResult,
+      });
+    } else {
+      console.error('MOCK_TRADE_SETTLEMENT_FAILED', {
+        mockTradeId,
+        side,
+        error: settlementResult.error,
+        txHash,
+      });
+    }
+  } catch (settlementErr) {
+    console.error('MOCK_TRADE_SETTLEMENT_FAILED', {
+      mockTradeId,
+      side,
+      error:
+        settlementErr instanceof Error
+          ? settlementErr.message
+          : String(settlementErr),
+      txHash,
+    });
+  }
+
+  return { ok: true };
+}
+
 async function pollAndFinalizeRealTrade(realTrade: any) {
   const tradeId: string = realTrade.trade_id;
   const chainId: number = realTrade.chain_id;
