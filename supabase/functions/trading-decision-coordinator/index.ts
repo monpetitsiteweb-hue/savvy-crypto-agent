@@ -3762,6 +3762,8 @@ serve(async (req) => {
               slippageBps,
               system_operator_mode: true,
               mock_trade_id: mockTradeId,
+              user_id: intent.userId,         // PHASE 3C: Ensure user_id propagation to real_trades
+              strategy_id: intent.strategyId, // PHASE 3C: Ensure strategy_id propagation to real_trades
             }),
           });
 
