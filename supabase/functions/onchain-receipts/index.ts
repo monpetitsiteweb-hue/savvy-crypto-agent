@@ -1397,13 +1397,88 @@ Deno.serve(async (req) => {
       realTradesToPoll = rows || [];
     }
 
+    // ── Pass A: standard SUBMITTED → CONFIRMED/REVERTED ────────────────
     const results = await Promise.all(realTradesToPoll.map(pollAndFinalizeRealTrade));
+
+    // ── Pass B (batch only): orphan scan ───────────────────────────────
+    // Find real_trades already CONFIRMED whose linked mock_trades placeholder
+    // is still NOT finalized (execution_confirmed = false). This recovers the
+    // ghost trades caused by the previous bug where pollAndFinalizeRealTrade
+    // never finalized the mock_trades row.
+    const orphanResults: any[] = [];
+    if (!tradeId) {
+      const { data: confirmedReals, error: orphanErr } = await supabase
+        .from('real_trades')
+        .select('*')
+        .eq('execution_status', 'CONFIRMED')
+        .eq('receipt_status', true)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (orphanErr) {
+        console.error('ORPHAN_SCAN_DB_ERROR', { error: orphanErr.message });
+      } else if (confirmedReals && confirmedReals.length > 0) {
+        for (const rt of confirmedReals) {
+          const linkedMockId: string | null = rt.trade_id ?? null;
+          if (!linkedMockId) continue;
+
+          const { data: mockRow } = await supabase
+            .from('mock_trades')
+            .select('id, execution_confirmed, settlement_status')
+            .eq('id', linkedMockId)
+            .maybeSingle();
+
+          if (!mockRow) continue;
+          if (
+            mockRow.execution_confirmed === true &&
+            mockRow.settlement_status === 'SETTLED'
+          ) {
+            continue;
+          }
+
+          // Re-fetch receipt to get fresh logs for decoding
+          const { receipt: orphanReceipt, error: orphanRpcErr } = await getReceipt(
+            rt.chain_id,
+            rt.tx_hash,
+          );
+          if (orphanRpcErr || !orphanReceipt) {
+            console.error('ORPHAN_RECEIPT_FETCH_FAILED', {
+              tradeId: rt.trade_id,
+              tx_hash: rt.tx_hash,
+              error: orphanRpcErr,
+            });
+            continue;
+          }
+
+          const blockTimestamp = orphanReceipt.blockTimestamp
+            ? new Date(parseInt(orphanReceipt.blockTimestamp, 16) * 1000).toISOString()
+            : new Date().toISOString();
+
+          console.log('ORPHAN_RECOVERY_ATTEMPT', {
+            mockTradeId: linkedMockId,
+            tx_hash: rt.tx_hash,
+            execution_confirmed: mockRow.execution_confirmed,
+            settlement_status: mockRow.settlement_status,
+          });
+
+          const r = await finalizeMockTradeAndSettle({
+            mockTradeId: linkedMockId,
+            realTrade: rt,
+            receipt: orphanReceipt,
+            blockTimestamp,
+          });
+          orphanResults.push({ mockTradeId: linkedMockId, tx_hash: rt.tx_hash, ...r });
+        }
+      }
+    }
 
     return new Response(
       JSON.stringify({
         ok: true,
         polled: results.length,
         results,
+        orphan_recovered: orphanResults.length,
+        orphan_results: orphanResults,
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
