@@ -1038,6 +1038,37 @@ async function processReceipt(trade: any) {
  * - Writes happen ONLY to real_trades
  */
 // ============================================================================
+// FX helper: USD→EUR historical rate via frankfurter.app (ECB reference rates)
+// Uses the daily close on or before blockTimestamp. In-memory daily cache.
+// Fail-soft: returns null on any error so the caller can fall back to USD.
+// ============================================================================
+const _fxCache = new Map<string, number>();
+async function getUsdEurRate(blockTimestamp: string): Promise<number | null> {
+  try {
+    const day = new Date(blockTimestamp).toISOString().slice(0, 10); // YYYY-MM-DD
+    if (_fxCache.has(day)) return _fxCache.get(day)!;
+    // Frankfurter returns the latest available rate on/before the requested date.
+    const url = `https://api.frankfurter.app/${day}?from=USD&to=EUR`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error('FX_FETCH_FAILED', { day, status: res.status });
+      return null;
+    }
+    const json = await res.json();
+    const rate = Number(json?.rates?.EUR);
+    if (!rate || !isFinite(rate) || rate <= 0) {
+      console.error('FX_FETCH_INVALID', { day, json });
+      return null;
+    }
+    _fxCache.set(day, rate);
+    return rate;
+  } catch (err) {
+    console.error('FX_FETCH_EXCEPTION', { error: (err as Error).message });
+    return null;
+  }
+}
+
+// ============================================================================
 // T1bis: Finalize the mock_trades placeholder + trigger settlement
 // Called after a real_trades row transitions SUBMITTED → CONFIRMED.
 // Idempotent: skips if mock_trade is already confirmed AND settled.
@@ -1119,53 +1150,35 @@ async function finalizeMockTradeAndSettle(params: {
   const executedPriceUsd = decoded.executedPrice;
   const totalValueUsd = decoded.totalValue;
 
-  // ── EUR conversion (Option A: value of asset received in EUR) ──────────
-  // Convention: totalValueEur = filledAmount × ETH-EUR spot at blockTimestamp
-  // Known limitation: under-tracks vs USDC actually spent (~7-8% per trade due to USD/EUR FX).
-  // To be addressed in a separate PR (Option B with historical USD/EUR rate).
-  const baseSymbol = (symbol || '').split('-')[0] || symbol;
-  const eurPair = `${baseSymbol}-EUR`;
-  let eurPrice: number | null = null;
+  // ── EUR conversion (Option B: USDC leg × historical USD→EUR FX rate) ──
+  // Convention: totalValueEur = usdc_spent × FX(USD/EUR) at blockTimestamp.
+  // This represents the actual EUR cost of the USDC leg, eliminating the
+  // ~7-8% under-tracking vs the prior asset×ETH-EUR convention.
+  let fxUsdEur: number | null = null;
   try {
-    const { data: ohlcvRow } = await supabase
-      .from('market_ohlcv_raw')
-      .select('close, ts_utc')
-      .eq('symbol', eurPair)
-      .eq('granularity', '5m')
-      .lte('ts_utc', blockTimestamp)
-      .order('ts_utc', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (ohlcvRow?.close != null) {
-      eurPrice = Number(ohlcvRow.close);
-    }
-  } catch (eurErr) {
-    console.error('EUR_CONVERSION_LOOKUP_FAILED', {
+    fxUsdEur = await getUsdEurRate(blockTimestamp);
+  } catch (fxErr) {
+    console.error('FX_LOOKUP_FAILED', {
       mockTradeId,
-      eurPair,
-      error: (eurErr as Error).message,
+      blockTimestamp,
+      error: (fxErr as Error).message,
     });
   }
 
   let executedPrice = executedPriceUsd;
   let totalValue = totalValueUsd;
   let conversionApplied = false;
-  if (eurPrice && eurPrice > 0 && filledAmount > 0) {
-    executedPrice = eurPrice;
-    totalValue = filledAmount * eurPrice;
+  if (fxUsdEur && fxUsdEur > 0 && totalValueUsd > 0 && filledAmount > 0) {
+    totalValue = totalValueUsd * fxUsdEur;
+    executedPrice = totalValue / filledAmount;
     conversionApplied = true;
   } else {
     console.error('EUR_CONVERSION_FALLBACK_USD', {
       mockTradeId,
-      eurPair,
       blockTimestamp,
-      reason: eurPrice ? 'invalid_price' : 'no_eur_price_found',
+      reason: fxUsdEur ? 'invalid_inputs' : 'no_fx_rate',
     });
   }
-
-  const undertrackedEur = conversionApplied
-    ? (totalValueUsd * 0.92 - totalValue)
-    : 0;
 
   const gasUsedDec = receipt.gasUsed ? parseInt(receipt.gasUsed, 16) : 0;
   const effectiveGasPrice = receipt.effectiveGasPrice
@@ -1175,7 +1188,7 @@ async function finalizeMockTradeAndSettle(params: {
     Number(BigInt(gasUsedDec) * BigInt(effectiveGasPrice)) / 1e18;
 
   const traceabilityNote = conversionApplied
-    ? ` | convention=eth_eur_value, eur_rate=${eurPrice!.toFixed(2)}, usdc_spent=${totalValueUsd.toFixed(2)}, undertracked_eur=${undertrackedEur.toFixed(2)}`
+    ? ` | convention=usdc_fx_eur, fx_usd_eur=${fxUsdEur!.toFixed(4)}, usdc_spent=${totalValueUsd.toFixed(2)}, eur_spent=${totalValue.toFixed(2)}`
     : ` | convention=usd_fallback, usdc_spent=${totalValueUsd.toFixed(2)}`;
 
   // ── Update the mock_trades placeholder → CONFIRMED ────────────────────
