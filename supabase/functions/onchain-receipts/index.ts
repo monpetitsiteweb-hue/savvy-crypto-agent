@@ -1053,7 +1053,7 @@ async function finalizeMockTradeAndSettle(params: {
   const symbol: string = realTrade.cryptocurrency || '';
   const side: string = (realTrade.side || 'BUY').toUpperCase();
   const userId: string = realTrade.user_id;
-  const strategyId: string | null = realTrade.strategy_id ?? null;
+  let strategyId: string | null = realTrade.strategy_id ?? null;
   const chainId: number = realTrade.chain_id;
   const provider: string | null = realTrade.provider ?? null;
   const isSystemOperator: boolean = realTrade.is_system_operator === true;
@@ -1077,7 +1077,22 @@ async function finalizeMockTradeAndSettle(params: {
     return { ok: true, reason: 'already_finalized' };
   }
 
-  // ── Decode swap economics from receipt ────────────────────────────────
+  // ── Strategy ID fallback : recover from mock_trades if missing on real_trades ──
+  if (!strategyId) {
+    const { data: mockRow } = await supabase
+      .from('mock_trades')
+      .select('strategy_id')
+      .eq('id', mockTradeId)
+      .maybeSingle();
+    if (mockRow?.strategy_id) {
+      strategyId = mockRow.strategy_id as string;
+      console.log('STRATEGY_ID_FALLBACK_RESOLVED', { mockTradeId, strategyId });
+    } else {
+      console.error('STRATEGY_ID_FALLBACK_FAILED', { mockTradeId });
+    }
+  }
+
+
   let decoded: DecodeResult;
   try {
     decoded = decodeSwapFromReceipt(receipt, symbol, side);
@@ -1101,8 +1116,56 @@ async function finalizeMockTradeAndSettle(params: {
   }
 
   const filledAmount = decoded.filledAmount;
-  const executedPrice = decoded.executedPrice;
-  const totalValue = decoded.totalValue;
+  const executedPriceUsd = decoded.executedPrice;
+  const totalValueUsd = decoded.totalValue;
+
+  // ── EUR conversion (Option A: value of asset received in EUR) ──────────
+  // Convention: totalValueEur = filledAmount × ETH-EUR spot at blockTimestamp
+  // Known limitation: under-tracks vs USDC actually spent (~7-8% per trade due to USD/EUR FX).
+  // To be addressed in a separate PR (Option B with historical USD/EUR rate).
+  const baseSymbol = (symbol || '').split('-')[0] || symbol;
+  const eurPair = `${baseSymbol}-EUR`;
+  let eurPrice: number | null = null;
+  try {
+    const { data: ohlcvRow } = await supabase
+      .from('market_ohlcv_raw')
+      .select('close, ts_utc')
+      .eq('symbol', eurPair)
+      .eq('granularity', '5m')
+      .lte('ts_utc', blockTimestamp)
+      .order('ts_utc', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (ohlcvRow?.close != null) {
+      eurPrice = Number(ohlcvRow.close);
+    }
+  } catch (eurErr) {
+    console.error('EUR_CONVERSION_LOOKUP_FAILED', {
+      mockTradeId,
+      eurPair,
+      error: (eurErr as Error).message,
+    });
+  }
+
+  let executedPrice = executedPriceUsd;
+  let totalValue = totalValueUsd;
+  let conversionApplied = false;
+  if (eurPrice && eurPrice > 0 && filledAmount > 0) {
+    executedPrice = eurPrice;
+    totalValue = filledAmount * eurPrice;
+    conversionApplied = true;
+  } else {
+    console.error('EUR_CONVERSION_FALLBACK_USD', {
+      mockTradeId,
+      eurPair,
+      blockTimestamp,
+      reason: eurPrice ? 'invalid_price' : 'no_eur_price_found',
+    });
+  }
+
+  const undertrackedEur = conversionApplied
+    ? (totalValueUsd * 0.92 - totalValue)
+    : 0;
 
   const gasUsedDec = receipt.gasUsed ? parseInt(receipt.gasUsed, 16) : 0;
   const effectiveGasPrice = receipt.effectiveGasPrice
@@ -1110,6 +1173,10 @@ async function finalizeMockTradeAndSettle(params: {
     : 0;
   const gasCostEth =
     Number(BigInt(gasUsedDec) * BigInt(effectiveGasPrice)) / 1e18;
+
+  const traceabilityNote = conversionApplied
+    ? ` | convention=eth_eur_value, eur_rate=${eurPrice!.toFixed(2)}, usdc_spent=${totalValueUsd.toFixed(2)}, undertracked_eur=${undertrackedEur.toFixed(2)}`
+    : ` | convention=usd_fallback, usdc_spent=${totalValueUsd.toFixed(2)}`;
 
   // ── Update the mock_trades placeholder → CONFIRMED ────────────────────
   // NOTE: `purchase_price` does NOT exist on mock_trades — canonical column is `price`.
@@ -1126,7 +1193,7 @@ async function finalizeMockTradeAndSettle(params: {
       tx_hash: txHash,
       chain_id: chainId,
       gas_cost_eth: gasCostEth,
-      notes: `On-chain execution confirmed | tx:${txHash?.substring(0, 10)}... | provider:${provider || 'unknown'} | decoded:${decoded.decodeMethod}`,
+      notes: `On-chain execution confirmed | tx:${txHash?.substring(0, 10)}... | provider:${provider || 'unknown'} | decoded:${decoded.decodeMethod}${traceabilityNote}`,
     })
     .eq('id', mockTradeId);
 
