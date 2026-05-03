@@ -48,17 +48,19 @@ export function RealPositionsTable({ positions, isLoading, onRefresh }: RealPosi
   const [enriched, setEnriched] = useState<EnrichedPosition[]>([]);
   const [enriching, setEnriching] = useState(false);
 
-  // Build aggregates from real_trade_history_view (CONFIRMED BUYs) + mock_trades.total_value
+  // Qty comes from real_positions_view (single source of truth, already converted).
+  // Cost basis (EUR) comes from mock_trades.total_value joined via real_trades.trade_id
+  // for CONFIRMED BUYs only.
   useEffect(() => {
     let cancelled = false;
     async function run() {
       if (positions.length === 0) { setEnriched([]); return; }
       setEnriching(true);
       try {
-        // 1) CONFIRMED BUYs from the view
+        // Pull CONFIRMED BUYs to know which mock_trade_ids contribute to cost basis
         const { data: rows, error } = await (supabase
           .from('real_trade_history_view' as any)
-          .select('symbol, chain_id, filled_quantity, mock_trade_id, execution_recorded_at')
+          .select('symbol, chain_id, mock_trade_id')
           .eq('side', 'BUY')
           .eq('execution_status', 'CONFIRMED') as any);
         if (error) throw error;
@@ -67,7 +69,6 @@ export function RealPositionsTable({ positions, isLoading, onRefresh }: RealPosi
           .map((r: any) => r.mock_trade_id)
           .filter((x: any) => !!x);
 
-        // 2) Pull EUR cost basis from mock_trades.total_value (Option B FX-correct)
         let mockMap = new Map<string, number>();
         if (tradeIds.length > 0) {
           const { data: mocks, error: mErr } = await supabase
@@ -78,29 +79,30 @@ export function RealPositionsTable({ positions, isLoading, onRefresh }: RealPosi
           mockMap = new Map((mocks || []).map((m: any) => [m.id, Number(m.total_value || 0)]));
         }
 
-        // 3) Aggregate per (symbol, chain_id)
-        const agg = new Map<string, EnrichedPosition>();
+        // Cost basis per (symbol, chain_id)
+        const costByKey = new Map<string, number>();
         for (const r of rows || []) {
           const key = `${r.symbol}-${r.chain_id}`;
-          const cur = agg.get(key) || {
-            symbol: r.symbol,
-            chain_id: r.chain_id,
-            qty: 0,
-            costBasisEur: 0,
-            avgPriceEur: 0,
-            last_trade_at: r.execution_recorded_at,
+          const add = mockMap.get(r.mock_trade_id) ?? 0;
+          costByKey.set(key, (costByKey.get(key) || 0) + add);
+        }
+
+        // Build enriched list directly from positions (qty = position_size from view)
+        const out: EnrichedPosition[] = positions.map((p) => {
+          const key = `${p.symbol}-${p.chain_id}`;
+          const qty = Number(p.position_size || 0);
+          const costBasisEur = costByKey.get(key) || 0;
+          return {
+            symbol: p.symbol,
+            chain_id: p.chain_id,
+            qty,
+            costBasisEur,
+            avgPriceEur: qty > 0 ? costBasisEur / qty : 0,
+            last_trade_at: p.last_trade_at,
           };
-          cur.qty += Number(r.filled_quantity || 0);
-          cur.costBasisEur += mockMap.get(r.mock_trade_id) ?? 0;
-          if (new Date(r.execution_recorded_at) > new Date(cur.last_trade_at)) {
-            cur.last_trade_at = r.execution_recorded_at;
-          }
-          agg.set(key, cur);
-        }
-        for (const v of agg.values()) {
-          v.avgPriceEur = v.qty > 0 ? v.costBasisEur / v.qty : 0;
-        }
-        if (!cancelled) setEnriched(Array.from(agg.values()));
+        }).filter(e => e.qty > 0);
+
+        if (!cancelled) setEnriched(out);
       } catch (e) {
         console.error('[RealPositionsTable] enrichment error:', e);
         if (!cancelled) setEnriched([]);
