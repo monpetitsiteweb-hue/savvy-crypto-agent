@@ -1038,6 +1038,37 @@ async function processReceipt(trade: any) {
  * - Writes happen ONLY to real_trades
  */
 // ============================================================================
+// FX helper: USD→EUR historical rate via frankfurter.app (ECB reference rates)
+// Uses the daily close on or before blockTimestamp. In-memory daily cache.
+// Fail-soft: returns null on any error so the caller can fall back to USD.
+// ============================================================================
+const _fxCache = new Map<string, number>();
+async function getUsdEurRate(blockTimestamp: string): Promise<number | null> {
+  try {
+    const day = new Date(blockTimestamp).toISOString().slice(0, 10); // YYYY-MM-DD
+    if (_fxCache.has(day)) return _fxCache.get(day)!;
+    // Frankfurter returns the latest available rate on/before the requested date.
+    const url = `https://api.frankfurter.app/${day}?from=USD&to=EUR`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error('FX_FETCH_FAILED', { day, status: res.status });
+      return null;
+    }
+    const json = await res.json();
+    const rate = Number(json?.rates?.EUR);
+    if (!rate || !isFinite(rate) || rate <= 0) {
+      console.error('FX_FETCH_INVALID', { day, json });
+      return null;
+    }
+    _fxCache.set(day, rate);
+    return rate;
+  } catch (err) {
+    console.error('FX_FETCH_EXCEPTION', { error: (err as Error).message });
+    return null;
+  }
+}
+
+// ============================================================================
 // T1bis: Finalize the mock_trades placeholder + trigger settlement
 // Called after a real_trades row transitions SUBMITTED → CONFIRMED.
 // Idempotent: skips if mock_trade is already confirmed AND settled.
