@@ -759,7 +759,39 @@ Deno.serve(async (req) => {
       
       // PHASE 3B: Use mock_trade_id from coordinator (FK-safe), or fallback to trades.id
       const fkTradeId = body.mock_trade_id || tradeId;
-      
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // PHASE 3C — OPTION B: Defensive resolution of user_id/strategy_id
+      // Coordinator now passes these in body (Option A), but if missing
+      // (legacy callers, manual invocations), fall back to mock_trades lookup
+      // to prevent NOT NULL violation on real_trades insert.
+      // ═══════════════════════════════════════════════════════════════════════
+      let resolvedUserId: string | null = body.user_id ?? trade.user_id ?? null;
+      let resolvedStrategyId: string | null = body.strategy_id ?? trade.strategy_id ?? null;
+
+      if ((!resolvedUserId || !resolvedStrategyId) && body.mock_trade_id) {
+        try {
+          const { data: mt, error: mtErr } = await supabase
+            .from('mock_trades')
+            .select('user_id, strategy_id')
+            .eq('id', body.mock_trade_id)
+            .maybeSingle();
+          if (mt && !mtErr) {
+            resolvedUserId = resolvedUserId || mt.user_id || null;
+            resolvedStrategyId = resolvedStrategyId || mt.strategy_id || null;
+            console.log('🔎 [sign-and-send] Resolved user_id/strategy_id from mock_trades fallback', {
+              mock_trade_id: body.mock_trade_id,
+              resolvedUserId,
+              resolvedStrategyId,
+            });
+          } else if (mtErr) {
+            console.warn('⚠️ [sign-and-send] mock_trades fallback lookup failed', { error: mtErr.message });
+          }
+        } catch (e) {
+          console.warn('⚠️ [sign-and-send] mock_trades fallback exception', { error: (e as Error).message });
+        }
+      }
+
       const realTradeSubmitRecord = {
         trade_id: fkTradeId,                   // Links to mock_trades (FK-safe) or trades table
         tx_hash: txHash,
@@ -769,8 +801,8 @@ Deno.serve(async (req) => {
         execution_target: 'REAL',
         execution_authority: isSystemOperator ? 'SYSTEM' : 'USER',
         is_system_operator: isSystemOperator,
-        user_id: trade.user_id,
-        strategy_id: isSystemOperator ? null : trade.strategy_id,
+        user_id: resolvedUserId,
+        strategy_id: isSystemOperator ? null : resolvedStrategyId,
         cryptocurrency: trade.base?.replace('/USD', '').replace('/EUR', '') || trade.symbol || 'UNKNOWN',
         side: (trade.side || 'BUY').toUpperCase(),
         amount: trade.amount || 0,             // Intent amount (updated on CONFIRMED)
@@ -789,8 +821,36 @@ Deno.serve(async (req) => {
           tx_hash: txHash,
           error: submitInsertError.message,
           code: submitInsertError.code,
+          details: (submitInsertError as any).details,
+          hint: (submitInsertError as any).hint,
           mock_trade_id_provided: !!body.mock_trade_id,
+          resolvedUserId,
+          resolvedStrategyId,
         });
+
+        // ACTION 1: Persist failure to trade_events for DB-level traceability
+        try {
+          await supabase.from('trade_events').insert({
+            trade_id: tradeId,
+            phase: 'submit_failed',
+            payload: {
+              error_message: submitInsertError.message,
+              error_code: submitInsertError.code,
+              error_details: (submitInsertError as any).details ?? null,
+              error_hint: (submitInsertError as any).hint ?? null,
+              tx_hash: txHash,
+              fk_trade_id: fkTradeId,
+              mock_trade_id: body.mock_trade_id ?? null,
+              resolved_user_id: resolvedUserId,
+              resolved_strategy_id: resolvedStrategyId,
+              record: realTradeSubmitRecord,
+            },
+          });
+        } catch (logErr) {
+          console.error('❌ [sign-and-send] Failed to persist submit_failed trade_event', {
+            error: (logErr as Error).message,
+          });
+        }
       } else {
         // ═══════════════════════════════════════════════════════════════════════
         // CANONICAL LOG: ONCHAIN_TX_SUBMITTED
@@ -803,6 +863,8 @@ Deno.serve(async (req) => {
           execution_status: 'SUBMITTED',
           chain_id: trade.chain_id,
           is_system_operator: isSystemOperator,
+          user_id: resolvedUserId,
+          strategy_id: isSystemOperator ? null : resolvedStrategyId,
         });
       }
 
