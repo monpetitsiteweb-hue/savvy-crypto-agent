@@ -118,8 +118,10 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
     if (!user || !strategyId) return;
 
     try {
-      // Fetch ONLY closed SELLs with realized P&L, filtered by mode
-      const { data: trades, error } = await supabase
+      // Fetch closed SELLs with realized P&L, filtered by mode.
+      // REAL mode: only count mock_trades that have a matching CONFIRMED real_trades row.
+      // This excludes legacy pre-custodial mock SELLs that never executed on-chain.
+      const baseQuery = supabase
         .from('mock_trades')
         .select('*')
         .eq('user_id', user.id)
@@ -127,6 +129,32 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
         .eq('is_test_mode', isTestMode)
         .eq('trade_type', 'sell')
         .not('profit_loss', 'is', null);
+
+      let trades: any[] | null = null;
+      let error: any = null;
+
+      if (!isTestMode) {
+        // Restrict to mock_trades whose id is referenced by a CONFIRMED real_trade
+        const { data: confirmed, error: rtErr } = await supabase
+          .from('real_trades')
+          .select('trade_id')
+          .eq('user_id', user.id)
+          .eq('execution_status', 'CONFIRMED')
+          .eq('trade_role', 'ENGINE_TRADE');
+        if (rtErr) throw rtErr;
+        const ids = (confirmed ?? []).map((r: any) => r.trade_id).filter(Boolean);
+        if (ids.length === 0) {
+          trades = [];
+        } else {
+          const res = await baseQuery.in('id', ids);
+          trades = res.data;
+          error = res.error;
+        }
+      } else {
+        const res = await baseQuery;
+        trades = res.data;
+        error = res.error;
+      }
 
       if (error) throw error;
 
