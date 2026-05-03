@@ -1,20 +1,14 @@
 /**
  * RealTradingHistory - REAL mode version of TradingHistory
  *
- * Now uses the shared <PortfolioSummaryHeader> for visual parity with TEST mode.
- *
- * Sources (REAL mode):
- *  - Cash → portfolio_capital via get_portfolio_metrics(p_is_test_mode=false)
- *  - Open Positions value → useOpenTrades + useHoldingsPrices (live prices)
- *  - Gas → useRealGasSpent (sum of gas_used × effectiveGasPrice on CONFIRMED+REVERTED)
- *  - Realized P&L → metrics.realized_pnl_eur (= 0 until first real SELL CONFIRMED)
+ * 3 tabs: Open Positions / SELL Trades / Reverted
+ * No "Confirmed only" toggle (each tab is already filtered by status).
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
 import { useRealTradeHistory } from '@/hooks/useRealTradeHistory';
 import { useRealPositions } from '@/hooks/useRealPositions';
 import { useOpenTrades } from '@/hooks/useOpenTrades';
@@ -22,8 +16,10 @@ import { useHoldingsPrices } from '@/hooks/useHoldingsPrices';
 import { useMarketData } from '@/contexts/MarketDataContext';
 import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { useRealGasSpent } from '@/hooks/useRealGasSpent';
+import { useRevertedTrades } from '@/hooks/useRevertedTrades';
 import { RealTradeHistoryTable } from '@/components/trading/RealTradeHistoryTable';
 import { RealPositionsTable } from '@/components/trading/RealPositionsTable';
+import { RevertedTradesTable } from '@/components/trading/RevertedTradesTable';
 import { PortfolioSummaryHeader, type PortfolioSummaryData } from '@/components/trading/PortfolioSummaryHeader';
 import { NoActiveStrategyState } from '@/components/NoActiveStrategyState';
 import { computeOpenTradesValueEur, type MarketPrices } from '@/utils/portfolioMath';
@@ -41,18 +37,16 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
   const { marketData } = useMarketData();
   const { metrics } = usePortfolioMetrics();
   const { gasSpentEur } = useRealGasSpent();
-
-  const [confirmedOnly, setConfirmedOnly] = useState(true);
+  const { rows: revertedRows } = useRevertedTrades(50);
 
   if (!hasActiveStrategy) {
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  const buyTrades = trades.filter(t => t.side === 'BUY' && (!confirmedOnly || t.execution_status === 'CONFIRMED'));
-  const sellTrades = trades.filter(t => t.side === 'SELL' && (!confirmedOnly || t.execution_status === 'CONFIRMED'));
-  const visibleTrades = confirmedOnly ? trades.filter(t => t.execution_status === 'CONFIRMED') : trades;
+  // Confirmed-only counters for the header & tabs (REVERTED excluded from BUY count)
+  const confirmedBuys = trades.filter(t => t.side === 'BUY' && t.execution_status === 'CONFIRMED');
+  const confirmedSells = trades.filter(t => t.side === 'SELL' && t.execution_status === 'CONFIRMED');
 
-  // Derive Open Positions value (live) using same logic as TEST mode
   const effectivePrices: MarketPrices = useMemo(() => {
     const merged: MarketPrices = { ...(marketData as MarketPrices) };
     for (const [k, v] of Object.entries(holdingsPrices)) {
@@ -77,9 +71,9 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
     const totalPnlPct = startingCapital > 0 ? (totalPnlEur / startingCapital) * 100 : 0;
 
     return {
-      openPositions: positions.length,
-      closedSells: sellTrades.length,
-      totalBuyTrades: buyTrades.length,
+      openPositions: openTrades.length,
+      closedSells: confirmedSells.length,
+      totalBuyTrades: confirmedBuys.length,
       cashEur,
       openPositionsValueEur,
       gasSpentEur,
@@ -92,7 +86,7 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
       missingSymbols: openCalc.missingSymbols,
       gasLabel: 'Gas (on-chain)',
     };
-  }, [metrics, openCalc, gasSpentEur, positions.length, sellTrades.length, buyTrades.length]);
+  }, [metrics, openCalc, gasSpentEur, openTrades.length, confirmedSells.length, confirmedBuys.length]);
 
   return (
     <div className="space-y-4">
@@ -107,14 +101,18 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
         <PortfolioSummaryHeader data={summary} />
 
         <Tabs defaultValue="positions">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="positions" className="flex items-center gap-2">
               <ArrowUpRight className="w-4 h-4" />
-              Positions ({positions.length})
+              Open Positions ({openTrades.length})
             </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center gap-2">
+            <TabsTrigger value="sells" className="flex items-center gap-2">
               <ArrowDownLeft className="w-4 h-4" />
-              Trade History ({visibleTrades.length})
+              SELL Trades ({confirmedSells.length})
+            </TabsTrigger>
+            <TabsTrigger value="reverted" className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4" />
+              Reverted ({revertedRows.length})
             </TabsTrigger>
           </TabsList>
 
@@ -126,22 +124,25 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
             />
           </TabsContent>
 
-          <TabsContent value="history" className="mt-4">
-            <div className="flex items-center justify-end gap-2 mb-3">
-              <span className="text-xs text-muted-foreground">
-                {confirmedOnly ? 'Confirmed only' : 'Show all'}
-              </span>
-              <Switch
-                checked={confirmedOnly}
-                onCheckedChange={setConfirmedOnly}
-                aria-label="Toggle confirmed-only filter"
+          <TabsContent value="sells" className="mt-4">
+            {confirmedSells.length === 0 ? (
+              <Card className="p-6">
+                <div className="text-center text-muted-foreground">
+                  <p>No closed trades yet.</p>
+                  <p className="text-sm mt-1">Confirmed SELL trades will appear here with realized P&L.</p>
+                </div>
+              </Card>
+            ) : (
+              <RealTradeHistoryTable
+                trades={confirmedSells}
+                isLoading={tradesLoading}
+                onRefresh={refreshTrades}
               />
-            </div>
-            <RealTradeHistoryTable
-              trades={visibleTrades}
-              isLoading={tradesLoading}
-              onRefresh={refreshTrades}
-            />
+            )}
+          </TabsContent>
+
+          <TabsContent value="reverted" className="mt-4">
+            <RevertedTradesTable />
           </TabsContent>
         </Tabs>
       </Card>
