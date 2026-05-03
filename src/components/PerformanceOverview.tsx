@@ -68,35 +68,55 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   const [localLoading, setLocalLoading] = useState(true);
   const [txCount, setTxCount] = useState(0);
 
-  // Fetch win/loss metrics and total traded volume locally
+  // Fetch win/loss metrics and total traded volume locally.
+  // REAL mode: strict join — only count mock_trades that have a matching
+  // real_trades row with execution_status='CONFIRMED' AND trade_role='ENGINE_TRADE'.
+  // This hides legacy mock-only sells that never settled on-chain.
   const fetchLocalMetrics = async () => {
     if (!user) return;
-    
+
     try {
       setLocalLoading(true);
-      
+
+      // Build the set of mock_trade ids that are backed by a CONFIRMED on-chain
+      // ENGINE_TRADE when we are in REAL mode. In TEST mode this gate is bypassed.
+      let realConfirmedIds: Set<string> | null = null;
+      if (!testMode) {
+        const { data: confirmedReal, error: rErr } = await ((supabase as any)
+          .from('real_trades')
+          .select('trade_id')
+          .eq('user_id', user.id)
+          .eq('execution_status', 'CONFIRMED')
+          .eq('trade_role', 'ENGINE_TRADE'));
+        if (rErr) throw rErr;
+        realConfirmedIds = new Set((confirmedReal || []).map((r: any) => r.trade_id));
+      }
+
       // Fetch sell trades for win/loss
       const { data: sellTrades, error } = await supabase
         .from('mock_trades')
-        .select('realized_pnl')
+        .select('id, realized_pnl')
         .eq('user_id', user.id)
         .eq('trade_type', 'sell')
         .eq('is_test_mode', testMode);
 
       if (error) throw error;
 
-      const winningTrades = sellTrades?.filter(t => (t.realized_pnl || 0) > 0) || [];
-      const losingTrades = sellTrades?.filter(t => (t.realized_pnl || 0) < 0) || [];
-      
+      const filteredSells = (sellTrades || []).filter(t =>
+        realConfirmedIds === null ? true : realConfirmedIds.has(t.id)
+      );
+
+      const winningTrades = filteredSells.filter(t => (t.realized_pnl || 0) > 0);
+      const losingTrades = filteredSells.filter(t => (t.realized_pnl || 0) < 0);
+
       const wins = winningTrades.length;
       const losses = losingTrades.length;
-      const total = sellTrades?.length || 0;
+      const total = filteredSells.length;
       const winRate = total > 0 ? (wins / total) * 100 : 0;
-      
-      // Calculate average winning and losing trade
+
       const totalWinPnl = winningTrades.reduce((sum, t) => sum + (t.realized_pnl || 0), 0);
       const totalLossPnl = losingTrades.reduce((sum, t) => sum + (t.realized_pnl || 0), 0);
-      
+
       const avgWinningTrade = wins > 0 ? totalWinPnl / wins : 0;
       const avgLosingTrade = losses > 0 ? totalLossPnl / losses : 0;
 
@@ -106,18 +126,23 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
         winRate,
         totalTrades: total,
         avgWinningTrade,
-        avgLosingTrade
+        avgLosingTrade,
       });
-      
-      // Fetch transaction count for gas calculation (each trade = 1 tx)
-      const { count } = await supabase
-        .from('mock_trades')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('is_test_mode', testMode)
-        .eq('is_corrupted', false);
-      
-      setTxCount(count || 0);
+
+      // Fetch transaction count for gas calculation
+      // REAL mode: count only confirmed on-chain ENGINE_TRADE rows.
+      // TEST mode: count all mock_trades for this user/mode (existing behaviour).
+      if (!testMode) {
+        setTxCount(realConfirmedIds!.size);
+      } else {
+        const { count } = await supabase
+          .from('mock_trades')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('is_test_mode', testMode)
+          .eq('is_corrupted', false);
+        setTxCount(count || 0);
+      }
     } catch (error) {
       console.error('Error fetching local metrics:', error);
     } finally {
@@ -148,7 +173,9 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
 
   useEffect(() => {
-    if (user && testMode) {
+    // Run for both TEST and REAL modes; the function itself applies the
+    // REAL-mode strict join on confirmed on-chain ENGINE_TRADE rows.
+    if (user) {
       fetchLocalMetrics();
     }
   }, [user, testMode]);
