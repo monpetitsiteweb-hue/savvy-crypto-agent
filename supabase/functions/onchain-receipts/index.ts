@@ -345,6 +345,10 @@ async function getReceipt(chainId: number, txHash: string) {
   }
 }
 
+// ⚠️ DEAD CODE (T1bis) — kept for reference only.
+// The canonical pipeline is `pollAndFinalizeRealTrade` + `finalizeMockTradeAndSettle`.
+// `processReceipt` is no longer invoked by the Deno.serve handler. Safe to remove
+// in a follow-up cleanup once T1bis is verified in production.
 async function processReceipt(trade: any) {
   // CRITICAL: Extract is_system_operator from trade record - this is the durable execution class
   const { id: tradeId, chain_id, tx_hash, provider, symbol, side, user_id, strategy_id, idempotency_key, is_system_operator } = trade;
