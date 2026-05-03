@@ -1258,6 +1258,59 @@ async function pollAndFinalizeRealTrade(realTrade: any) {
     chain_id: chainId,
   });
 
+  // ── T1bis: extend pipeline ─────────────────────────────────────────
+  // 3a. Resolve blockTimestamp from receipt
+  const blockTimestamp = receipt.blockTimestamp
+    ? new Date(parseInt(receipt.blockTimestamp, 16) * 1000).toISOString()
+    : new Date().toISOString();
+
+  if (txSuccess) {
+    // 3b. Lookup the linked mock_trades placeholder via real_trades.trade_id
+    //     The coordinator stores the mock_trades.id into real_trades.trade_id
+    //     (placeholder pattern). If absent, fall back to idempotency_key match.
+    let mockTradeId: string | null = null;
+
+    const { data: mockById } = await supabase
+      .from('mock_trades')
+      .select('id')
+      .eq('id', tradeId)
+      .maybeSingle();
+
+    if (mockById?.id) {
+      mockTradeId = mockById.id;
+    } else {
+      const { data: mockByKey } = await supabase
+        .from('mock_trades')
+        .select('id')
+        .eq('idempotency_key', `pending_${tradeId}`)
+        .maybeSingle();
+      mockTradeId = mockByKey?.id ?? null;
+    }
+
+    if (!mockTradeId) {
+      console.error('MOCK_TRADE_PLACEHOLDER_NOT_FOUND', {
+        tradeId,
+        tx_hash: txHash,
+      });
+    } else {
+      // 3c + 3d. Finalize placeholder and trigger settlement
+      await finalizeMockTradeAndSettle({
+        mockTradeId,
+        realTrade,
+        receipt,
+        blockTimestamp,
+      });
+    }
+  } else {
+    // T1bis: log reverted txs explicitly (no settlement, no mock finalize)
+    console.log('MOCK_TRADE_REVERTED', {
+      tradeId,
+      tx_hash: txHash,
+      block_number: receipt.blockNumber,
+      gas_used: receipt.gasUsed,
+    });
+  }
+
   return {
     tradeId,
     tx_hash: txHash,
