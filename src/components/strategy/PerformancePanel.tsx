@@ -135,12 +135,12 @@ export const PerformancePanel = ({ strategyId }: PerformancePanelProps) => {
 
       if (!isTestMode) {
         // Restrict to mock_trades whose id is referenced by a CONFIRMED real_trade
-        const { data: confirmed, error: rtErr } = await supabase
-          .from('real_trades')
+        const { data: confirmed, error: rtErr } = await (supabase
+          .from('real_trades' as any)
           .select('trade_id')
           .eq('user_id', user.id)
           .eq('execution_status', 'CONFIRMED')
-          .eq('trade_role', 'ENGINE_TRADE');
+          .eq('trade_role', 'ENGINE_TRADE') as any);
         if (rtErr) throw rtErr;
         const ids = (confirmed ?? []).map((r: any) => r.trade_id).filter(Boolean);
         if (ids.length === 0) {
