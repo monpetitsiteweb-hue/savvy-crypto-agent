@@ -276,25 +276,30 @@ Deno.serve(async (req) => {
         const eurAmount = Number(body.amount);
 
         // Helper: log decision_event + return 400
+        // decision_events requires NOT NULL: user_id, strategy_id, symbol, side, source
         const blockBuy = async (reason: string, message: string, extra: Record<string, unknown> = {}) => {
           console.error(`🛑 [sign-and-send] PRE-FLIGHT BLOCK: ${reason}`, { eurAmount, ...extra });
-          try {
-            await supabaseAdmin.from('decision_events').insert({
-              user_id: body.user_id ?? null,
-              strategy_id: body.strategy_id ?? null,
-              symbol: body.symbol,
-              side: 'BUY',
-              event_type: 'preflight_blocked',
-              reason,
-              metadata: {
+          if (body.user_id && body.strategy_id) {
+            try {
+              await supabaseAdmin.from('decision_events').insert({
+                user_id: body.user_id,
+                strategy_id: body.strategy_id,
+                symbol: body.symbol,
+                side: 'BUY',
                 source: 'onchain-sign-and-send.preflight',
-                eur_amount: eurAmount,
-                mock_trade_id: body.mock_trade_id ?? null,
-                ...extra,
-              },
-            });
-          } catch (logErr) {
-            console.warn('⚠️ [sign-and-send] Failed to log decision_event:', logErr);
+                reason,
+                metadata: {
+                  blocked: true,
+                  eur_amount: eurAmount,
+                  mock_trade_id: body.mock_trade_id ?? null,
+                  ...extra,
+                },
+              });
+            } catch (logErr) {
+              console.warn('⚠️ [sign-and-send] Failed to log decision_event:', logErr);
+            }
+          } else {
+            console.warn('⚠️ [sign-and-send] decision_event NOT logged (missing user_id/strategy_id)');
           }
           return new Response(JSON.stringify({
             ok: false,
