@@ -265,7 +265,110 @@ Deno.serve(async (req) => {
       if (requestedSlippageBps > BUILDER_MAX_SLIPPAGE_BPS) {
         console.warn(`⚠️ [sign-and-send] Slippage clamped: requested=${requestedSlippageBps}bps, effective=${effectiveSlippageBps}bps (builder max=${BUILDER_MAX_SLIPPAGE_BPS}bps)`);
       }
-      
+
+      // ====================================================================
+      // PRE-FLIGHT GUARDS (BUY only) — fail-closed before quote/build to save gas
+      // Guard (a): cash_balance_eur < 0  → blocked_negative_cash
+      // Guard (b): bot USDC wallet < requiredUsdc (eurAmount * 1.10) → blocked_insufficient_usdc_wallet
+      // ====================================================================
+      if (body.side === 'BUY') {
+        const supabaseAdmin = createClient(PROJECT_URL!, SERVICE_ROLE!);
+        const eurAmount = Number(body.amount);
+
+        // Helper: log decision_event + return 400
+        // decision_events requires NOT NULL: user_id, strategy_id, symbol, side, source
+        const blockBuy = async (reason: string, message: string, extra: Record<string, unknown> = {}) => {
+          console.error(`🛑 [sign-and-send] PRE-FLIGHT BLOCK: ${reason}`, { eurAmount, ...extra });
+          if (body.user_id && body.strategy_id) {
+            try {
+              await supabaseAdmin.from('decision_events').insert({
+                user_id: body.user_id,
+                strategy_id: body.strategy_id,
+                symbol: body.symbol,
+                side: 'BUY',
+                source: 'onchain-sign-and-send.preflight',
+                reason,
+                metadata: {
+                  blocked: true,
+                  eur_amount: eurAmount,
+                  mock_trade_id: body.mock_trade_id ?? null,
+                  ...extra,
+                },
+              });
+            } catch (logErr) {
+              console.warn('⚠️ [sign-and-send] Failed to log decision_event:', logErr);
+            }
+          } else {
+            console.warn('⚠️ [sign-and-send] decision_event NOT logged (missing user_id/strategy_id)');
+          }
+          return new Response(JSON.stringify({
+            ok: false,
+            error: { code: reason, message },
+          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        };
+
+        // ---- Guard (a): cash_balance_eur < 0 ----
+        if (body.user_id) {
+          try {
+            const { data: cap, error: capErr } = await supabaseAdmin
+              .from('portfolio_capital')
+              .select('cash_balance_eur')
+              .eq('user_id', body.user_id)
+              .eq('is_test_mode', false)
+              .maybeSingle();
+            if (capErr) {
+              console.warn('⚠️ [sign-and-send] portfolio_capital lookup failed (guard a skipped):', capErr.message);
+            } else if (cap && Number(cap.cash_balance_eur) < 0) {
+              return await blockBuy(
+                'blocked_negative_cash',
+                `Cash balance is negative (${cap.cash_balance_eur} EUR); BUY refused.`,
+                { cash_balance_eur: cap.cash_balance_eur },
+              );
+            }
+          } catch (e) {
+            console.warn('⚠️ [sign-and-send] Guard (a) error (skipped):', (e as Error).message);
+          }
+        } else {
+          console.warn('⚠️ [sign-and-send] Guard (a) skipped: missing body.user_id');
+        }
+
+        // ---- Guard (b): on-chain USDC balance of bot wallet ----
+        try {
+          const USDC_BASE = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+          const USDC_DECIMALS = 6;
+          // balanceOf(address) selector = 0x70a08231
+          const padded = systemBotAddress.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+          const data = '0x70a08231' + padded;
+          const rpcUrl = Deno.env.get('RPC_URL_8453') || 'https://mainnet.base.org';
+          const rpcResp = await fetch(rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0', id: 1, method: 'eth_call',
+              params: [{ to: USDC_BASE, data }, 'latest'],
+            }),
+          });
+          const rpcJson = await rpcResp.json();
+          if (rpcJson.error || !rpcJson.result) {
+            console.warn('⚠️ [sign-and-send] Guard (b) RPC failed (skipped):', rpcJson.error);
+          } else {
+            const usdcBalAtomic = BigInt(rpcJson.result);
+            const usdcBalHuman = Number(usdcBalAtomic) / 10 ** USDC_DECIMALS;
+            // requiredUsdc ≈ eurAmount × 1.10 (fx EUR/USD + slippage margin)
+            const requiredUsdc = eurAmount * 1.10;
+            if (usdcBalHuman < requiredUsdc) {
+              return await blockBuy(
+                'blocked_insufficient_usdc_wallet',
+                `Bot USDC balance (${usdcBalHuman.toFixed(2)}) < required (${requiredUsdc.toFixed(2)}) for BUY of ${eurAmount} EUR.`,
+                { bot_usdc_balance: usdcBalHuman, required_usdc: requiredUsdc, bot_address: systemBotAddress },
+              );
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ [sign-and-send] Guard (b) error (skipped):', (e as Error).message);
+        }
+      }
+
       const buildResult = await buildTrade({
         symbol: body.symbol,
         side: body.side,
