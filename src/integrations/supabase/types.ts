@@ -252,6 +252,36 @@ export type Database = {
         }
         Relationships: []
       }
+      archive_run_log: {
+        Row: {
+          details: Json
+          dry_run: boolean
+          finished_at: string | null
+          id: string
+          rows_affected: number
+          run_kind: string
+          triggered_at: string
+        }
+        Insert: {
+          details?: Json
+          dry_run?: boolean
+          finished_at?: string | null
+          id?: string
+          rows_affected?: number
+          run_kind: string
+          triggered_at?: string
+        }
+        Update: {
+          details?: Json
+          dry_run?: boolean
+          finished_at?: string | null
+          id?: string
+          rows_affected?: number
+          run_kind?: string
+          triggered_at?: string
+        }
+        Relationships: []
+      }
       calibration_metrics: {
         Row: {
           computed_at: string
@@ -2015,6 +2045,198 @@ export type Database = {
         }
         Relationships: []
       }
+      mock_trade_attempts_failed: {
+        Row: {
+          amount: number
+          amount_in_wei: number | null
+          amount_out_wei: number | null
+          archive_reason: string
+          archived_at: string
+          archived_by_run: string | null
+          buy_fees: number | null
+          chain_id: number | null
+          cryptocurrency: string
+          effective_bps_cost: number | null
+          executed_at: string
+          execution_confirmed: boolean | null
+          execution_mode: string | null
+          execution_source: string | null
+          execution_ts: string | null
+          exit_value: number | null
+          fee_native_wei: number | null
+          fees: number | null
+          gas_cost_eth: number | null
+          gas_cost_eur: number | null
+          gas_cost_pct: number | null
+          gas_estimate_wei: number | null
+          gas_used_wei: number | null
+          id: string
+          idempotency_key: string | null
+          integrity_reason: string | null
+          is_archived: boolean
+          is_corrupted: boolean
+          is_open_position: boolean
+          is_system_operator: boolean
+          is_test_mode: boolean
+          market_conditions: Json | null
+          mev_route: string | null
+          notes: string | null
+          original_purchase_amount: number | null
+          original_purchase_price: number | null
+          original_purchase_value: number | null
+          original_trade_id: string | null
+          pnl_at_decision_pct: number | null
+          price: number
+          price_impact_bps: number | null
+          price_quoted: number | null
+          price_realized: number | null
+          profit_loss: number | null
+          provider: string | null
+          quote_age_ms: number | null
+          realized_pnl: number | null
+          realized_pnl_pct: number | null
+          route_source: string | null
+          router: string | null
+          sell_fees: number | null
+          settlement_status: string | null
+          slippage_bps: number | null
+          strategy_id: string | null
+          strategy_trigger: string | null
+          token_in: string | null
+          token_out: string | null
+          total_value: number
+          trade_type: string
+          tx_hash: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
+          archive_reason?: string
+          archived_at?: string
+          archived_by_run?: string | null
+          buy_fees?: number | null
+          chain_id?: number | null
+          cryptocurrency: string
+          effective_bps_cost?: number | null
+          executed_at?: string
+          execution_confirmed?: boolean | null
+          execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
+          exit_value?: number | null
+          fee_native_wei?: number | null
+          fees?: number | null
+          gas_cost_eth?: number | null
+          gas_cost_eur?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
+          id?: string
+          idempotency_key?: string | null
+          integrity_reason?: string | null
+          is_archived?: boolean
+          is_corrupted?: boolean
+          is_open_position?: boolean
+          is_system_operator?: boolean
+          is_test_mode?: boolean
+          market_conditions?: Json | null
+          mev_route?: string | null
+          notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
+          original_trade_id?: string | null
+          pnl_at_decision_pct?: number | null
+          price: number
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
+          profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
+          sell_fees?: number | null
+          settlement_status?: string | null
+          slippage_bps?: number | null
+          strategy_id?: string | null
+          strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
+          total_value: number
+          trade_type: string
+          tx_hash?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
+          archive_reason?: string
+          archived_at?: string
+          archived_by_run?: string | null
+          buy_fees?: number | null
+          chain_id?: number | null
+          cryptocurrency?: string
+          effective_bps_cost?: number | null
+          executed_at?: string
+          execution_confirmed?: boolean | null
+          execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
+          exit_value?: number | null
+          fee_native_wei?: number | null
+          fees?: number | null
+          gas_cost_eth?: number | null
+          gas_cost_eur?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
+          id?: string
+          idempotency_key?: string | null
+          integrity_reason?: string | null
+          is_archived?: boolean
+          is_corrupted?: boolean
+          is_open_position?: boolean
+          is_system_operator?: boolean
+          is_test_mode?: boolean
+          market_conditions?: Json | null
+          mev_route?: string | null
+          notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
+          original_trade_id?: string | null
+          pnl_at_decision_pct?: number | null
+          price?: number
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
+          profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
+          sell_fees?: number | null
+          settlement_status?: string | null
+          slippage_bps?: number | null
+          strategy_id?: string | null
+          strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
+          total_value?: number
+          trade_type?: string
+          tx_hash?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       mock_trades: {
         Row: {
           amount: number
@@ -2040,6 +2262,7 @@ export type Database = {
           id: string
           idempotency_key: string | null
           integrity_reason: string | null
+          is_archived: boolean
           is_corrupted: boolean
           is_open_position: boolean
           is_system_operator: boolean
@@ -2099,6 +2322,7 @@ export type Database = {
           id?: string
           idempotency_key?: string | null
           integrity_reason?: string | null
+          is_archived?: boolean
           is_corrupted?: boolean
           is_open_position?: boolean
           is_system_operator?: boolean
@@ -2158,6 +2382,7 @@ export type Database = {
           id?: string
           idempotency_key?: string | null
           integrity_reason?: string | null
+          is_archived?: boolean
           is_corrupted?: boolean
           is_open_position?: boolean
           is_system_operator?: boolean
@@ -2702,6 +2927,13 @@ export type Database = {
             columns: ["trade_id"]
             isOneToOne: false
             referencedRelation: "mock_trades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades_active_v"
             referencedColumns: ["id"]
           },
           {
@@ -3934,6 +4166,453 @@ export type Database = {
           },
         ]
       }
+      mock_trades_active_v: {
+        Row: {
+          amount: number | null
+          amount_in_wei: number | null
+          amount_out_wei: number | null
+          buy_fees: number | null
+          chain_id: number | null
+          cryptocurrency: string | null
+          effective_bps_cost: number | null
+          executed_at: string | null
+          execution_confirmed: boolean | null
+          execution_mode: string | null
+          execution_source: string | null
+          execution_ts: string | null
+          exit_value: number | null
+          fee_native_wei: number | null
+          fees: number | null
+          gas_cost_eth: number | null
+          gas_cost_eur: number | null
+          gas_cost_pct: number | null
+          gas_estimate_wei: number | null
+          gas_used_wei: number | null
+          id: string | null
+          idempotency_key: string | null
+          integrity_reason: string | null
+          is_archived: boolean | null
+          is_corrupted: boolean | null
+          is_open_position: boolean | null
+          is_system_operator: boolean | null
+          is_test_mode: boolean | null
+          market_conditions: Json | null
+          mev_route: string | null
+          notes: string | null
+          original_purchase_amount: number | null
+          original_purchase_price: number | null
+          original_purchase_value: number | null
+          original_trade_id: string | null
+          pnl_at_decision_pct: number | null
+          price: number | null
+          price_impact_bps: number | null
+          price_quoted: number | null
+          price_realized: number | null
+          profit_loss: number | null
+          provider: string | null
+          quote_age_ms: number | null
+          realized_pnl: number | null
+          realized_pnl_pct: number | null
+          route_source: string | null
+          router: string | null
+          sell_fees: number | null
+          settlement_status: string | null
+          slippage_bps: number | null
+          strategy_id: string | null
+          strategy_trigger: string | null
+          token_in: string | null
+          token_out: string | null
+          total_value: number | null
+          trade_type: string | null
+          tx_hash: string | null
+          user_id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
+          buy_fees?: number | null
+          chain_id?: number | null
+          cryptocurrency?: string | null
+          effective_bps_cost?: number | null
+          executed_at?: string | null
+          execution_confirmed?: boolean | null
+          execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
+          exit_value?: number | null
+          fee_native_wei?: number | null
+          fees?: number | null
+          gas_cost_eth?: number | null
+          gas_cost_eur?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
+          id?: string | null
+          idempotency_key?: string | null
+          integrity_reason?: string | null
+          is_archived?: boolean | null
+          is_corrupted?: boolean | null
+          is_open_position?: boolean | null
+          is_system_operator?: boolean | null
+          is_test_mode?: boolean | null
+          market_conditions?: Json | null
+          mev_route?: string | null
+          notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
+          original_trade_id?: string | null
+          pnl_at_decision_pct?: number | null
+          price?: number | null
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
+          profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
+          sell_fees?: number | null
+          settlement_status?: string | null
+          slippage_bps?: number | null
+          strategy_id?: string | null
+          strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
+          total_value?: number | null
+          trade_type?: string | null
+          tx_hash?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
+          buy_fees?: number | null
+          chain_id?: number | null
+          cryptocurrency?: string | null
+          effective_bps_cost?: number | null
+          executed_at?: string | null
+          execution_confirmed?: boolean | null
+          execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
+          exit_value?: number | null
+          fee_native_wei?: number | null
+          fees?: number | null
+          gas_cost_eth?: number | null
+          gas_cost_eur?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
+          id?: string | null
+          idempotency_key?: string | null
+          integrity_reason?: string | null
+          is_archived?: boolean | null
+          is_corrupted?: boolean | null
+          is_open_position?: boolean | null
+          is_system_operator?: boolean | null
+          is_test_mode?: boolean | null
+          market_conditions?: Json | null
+          mev_route?: string | null
+          notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
+          original_trade_id?: string | null
+          pnl_at_decision_pct?: number | null
+          price?: number | null
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
+          profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
+          sell_fees?: number | null
+          settlement_status?: string | null
+          slippage_bps?: number | null
+          strategy_id?: string | null
+          strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
+          total_value?: number | null
+          trade_type?: string | null
+          tx_hash?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mock_trades_strategy_id_fkey"
+            columns: ["strategy_id"]
+            isOneToOne: false
+            referencedRelation: "trading_strategies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mock_trades_archive_v: {
+        Row: {
+          amount: number | null
+          amount_in_wei: number | null
+          amount_out_wei: number | null
+          archive_reason: string | null
+          archived_at: string | null
+          archived_by_run: string | null
+          buy_fees: number | null
+          chain_id: number | null
+          cryptocurrency: string | null
+          effective_bps_cost: number | null
+          executed_at: string | null
+          execution_confirmed: boolean | null
+          execution_mode: string | null
+          execution_source: string | null
+          execution_ts: string | null
+          exit_value: number | null
+          fee_native_wei: number | null
+          fees: number | null
+          gas_cost_eth: number | null
+          gas_cost_eur: number | null
+          gas_cost_pct: number | null
+          gas_estimate_wei: number | null
+          gas_used_wei: number | null
+          id: string | null
+          idempotency_key: string | null
+          integrity_reason: string | null
+          is_archived: boolean | null
+          is_corrupted: boolean | null
+          is_open_position: boolean | null
+          is_system_operator: boolean | null
+          is_test_mode: boolean | null
+          market_conditions: Json | null
+          mev_route: string | null
+          notes: string | null
+          original_purchase_amount: number | null
+          original_purchase_price: number | null
+          original_purchase_value: number | null
+          original_trade_id: string | null
+          pnl_at_decision_pct: number | null
+          price: number | null
+          price_impact_bps: number | null
+          price_quoted: number | null
+          price_realized: number | null
+          profit_loss: number | null
+          provider: string | null
+          quote_age_ms: number | null
+          realized_pnl: number | null
+          realized_pnl_pct: number | null
+          route_source: string | null
+          router: string | null
+          sell_fees: number | null
+          settlement_status: string | null
+          slippage_bps: number | null
+          strategy_id: string | null
+          strategy_trigger: string | null
+          token_in: string | null
+          token_out: string | null
+          total_value: number | null
+          trade_type: string | null
+          tx_hash: string | null
+          user_id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by_run?: string | null
+          buy_fees?: number | null
+          chain_id?: number | null
+          cryptocurrency?: string | null
+          effective_bps_cost?: number | null
+          executed_at?: string | null
+          execution_confirmed?: boolean | null
+          execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
+          exit_value?: number | null
+          fee_native_wei?: number | null
+          fees?: number | null
+          gas_cost_eth?: number | null
+          gas_cost_eur?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
+          id?: string | null
+          idempotency_key?: string | null
+          integrity_reason?: string | null
+          is_archived?: boolean | null
+          is_corrupted?: boolean | null
+          is_open_position?: boolean | null
+          is_system_operator?: boolean | null
+          is_test_mode?: boolean | null
+          market_conditions?: Json | null
+          mev_route?: string | null
+          notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
+          original_trade_id?: string | null
+          pnl_at_decision_pct?: number | null
+          price?: number | null
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
+          profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
+          sell_fees?: number | null
+          settlement_status?: string | null
+          slippage_bps?: number | null
+          strategy_id?: string | null
+          strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
+          total_value?: number | null
+          trade_type?: string | null
+          tx_hash?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          amount_in_wei?: number | null
+          amount_out_wei?: number | null
+          archive_reason?: string | null
+          archived_at?: string | null
+          archived_by_run?: string | null
+          buy_fees?: number | null
+          chain_id?: number | null
+          cryptocurrency?: string | null
+          effective_bps_cost?: number | null
+          executed_at?: string | null
+          execution_confirmed?: boolean | null
+          execution_mode?: string | null
+          execution_source?: string | null
+          execution_ts?: string | null
+          exit_value?: number | null
+          fee_native_wei?: number | null
+          fees?: number | null
+          gas_cost_eth?: number | null
+          gas_cost_eur?: number | null
+          gas_cost_pct?: number | null
+          gas_estimate_wei?: number | null
+          gas_used_wei?: number | null
+          id?: string | null
+          idempotency_key?: string | null
+          integrity_reason?: string | null
+          is_archived?: boolean | null
+          is_corrupted?: boolean | null
+          is_open_position?: boolean | null
+          is_system_operator?: boolean | null
+          is_test_mode?: boolean | null
+          market_conditions?: Json | null
+          mev_route?: string | null
+          notes?: string | null
+          original_purchase_amount?: number | null
+          original_purchase_price?: number | null
+          original_purchase_value?: number | null
+          original_trade_id?: string | null
+          pnl_at_decision_pct?: number | null
+          price?: number | null
+          price_impact_bps?: number | null
+          price_quoted?: number | null
+          price_realized?: number | null
+          profit_loss?: number | null
+          provider?: string | null
+          quote_age_ms?: number | null
+          realized_pnl?: number | null
+          realized_pnl_pct?: number | null
+          route_source?: string | null
+          router?: string | null
+          sell_fees?: number | null
+          settlement_status?: string | null
+          slippage_bps?: number | null
+          strategy_id?: string | null
+          strategy_trigger?: string | null
+          token_in?: string | null
+          token_out?: string | null
+          total_value?: number | null
+          trade_type?: string | null
+          tx_hash?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      mock_trades_with_archive_v: {
+        Row: {
+          _source: string | null
+          amount: number | null
+          amount_in_wei: number | null
+          amount_out_wei: number | null
+          buy_fees: number | null
+          chain_id: number | null
+          cryptocurrency: string | null
+          effective_bps_cost: number | null
+          executed_at: string | null
+          execution_confirmed: boolean | null
+          execution_mode: string | null
+          execution_source: string | null
+          execution_ts: string | null
+          exit_value: number | null
+          fee_native_wei: number | null
+          fees: number | null
+          gas_cost_eth: number | null
+          gas_cost_eur: number | null
+          gas_cost_pct: number | null
+          gas_estimate_wei: number | null
+          gas_used_wei: number | null
+          id: string | null
+          idempotency_key: string | null
+          integrity_reason: string | null
+          is_archived: boolean | null
+          is_corrupted: boolean | null
+          is_open_position: boolean | null
+          is_system_operator: boolean | null
+          is_test_mode: boolean | null
+          market_conditions: Json | null
+          mev_route: string | null
+          notes: string | null
+          original_purchase_amount: number | null
+          original_purchase_price: number | null
+          original_purchase_value: number | null
+          original_trade_id: string | null
+          pnl_at_decision_pct: number | null
+          price: number | null
+          price_impact_bps: number | null
+          price_quoted: number | null
+          price_realized: number | null
+          profit_loss: number | null
+          provider: string | null
+          quote_age_ms: number | null
+          realized_pnl: number | null
+          realized_pnl_pct: number | null
+          route_source: string | null
+          router: string | null
+          sell_fees: number | null
+          settlement_status: string | null
+          slippage_bps: number | null
+          strategy_id: string | null
+          strategy_trigger: string | null
+          token_in: string | null
+          token_out: string | null
+          total_value: number | null
+          trade_type: string | null
+          tx_hash: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       past_positions_view: {
         Row: {
           amount: number | null
@@ -4092,6 +4771,13 @@ export type Database = {
             columns: ["mock_trade_id"]
             isOneToOne: false
             referencedRelation: "mock_trades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_real_trades_mock"
+            columns: ["mock_trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades_active_v"
             referencedColumns: ["id"]
           },
           {
@@ -4334,6 +5020,15 @@ export type Database = {
           sell_id: string
           symbol: string
           user_id: string
+        }[]
+      }
+      archive_failed_attempts: {
+        Args: { p_dry_run?: boolean }
+        Returns: {
+          p1_count: number
+          p2_count: number
+          rows_archived: number
+          run_id: string
         }[]
       }
       bridge_wallet_funding_to_portfolio_capital: {
@@ -4732,6 +5427,10 @@ export type Database = {
       trigger_panic_liquidation: {
         Args: { p_reason?: string; p_strategy_id?: string; p_user_id: string }
         Returns: Json
+      }
+      unarchive_for_late_settlement: {
+        Args: { p_trade_id: string }
+        Returns: boolean
       }
       unwrap_legacy_buffer_to_bytea: { Args: { v: Json }; Returns: string }
       update_strategy_state: {
