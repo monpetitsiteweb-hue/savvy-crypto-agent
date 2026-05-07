@@ -307,7 +307,15 @@ Deno.serve(async (req) => {
           }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         };
 
-        // ---- Guard (a): cash_balance_eur < 0 ----
+        // ---- Guard (a): cash_balance_eur < 0  AND  Guard (a2): eurAmount > cash_balance_eur ----
+        // Single portfolio_capital read for the REAL row, two ordered checks.
+        // Hardcoded is_test_mode=false: per caller-site audit (2026-05-07), no caller
+        // currently passes body.is_test_mode. All onchain BUYs hitting this function
+        // are REAL by construction (TEST/mock paths never reach onchain-sign-and-send).
+        // Fail-OPEN on DB error: a transient DB issue must not freeze trading; guard (b)
+        // (bot USDC pool >= eurAmount * 1.10) remains as last-defense aggregate check.
+        // TODO: factor in reserved_eur (requires audit of reservation lifecycle).
+        // TODO: SELECT FOR UPDATE to close the in-flight BUY race window.
         if (body.user_id) {
           try {
             const { data: cap, error: capErr } = await supabaseAdmin
@@ -317,19 +325,42 @@ Deno.serve(async (req) => {
               .eq('is_test_mode', false)
               .maybeSingle();
             if (capErr) {
-              console.warn('⚠️ [sign-and-send] portfolio_capital lookup failed (guard a skipped):', capErr.message);
-            } else if (cap && Number(cap.cash_balance_eur) < 0) {
-              return await blockBuy(
-                'blocked_negative_cash',
-                `Cash balance is negative (${cap.cash_balance_eur} EUR); BUY refused.`,
-                { cash_balance_eur: cap.cash_balance_eur },
-              );
+              console.warn('⚠️ [sign-and-send] portfolio_capital lookup failed (guards a/a2 skipped, fail-open):', capErr.message);
+            } else if (!cap) {
+              console.warn('⚠️ [sign-and-send] portfolio_capital REAL row not found (guards a/a2 skipped, fail-open) for user_id:', body.user_id);
+            } else {
+              const cashBalanceEur = Number(cap.cash_balance_eur);
+
+              // Guard (a): negative cash → block (existing behavior, unchanged)
+              if (cashBalanceEur < 0) {
+                return await blockBuy(
+                  'blocked_negative_cash',
+                  `Cash balance is negative (${cashBalanceEur} EUR); BUY refused.`,
+                  { cash_balance_eur: cashBalanceEur },
+                );
+              }
+
+              // Guard (a2) NEW: per-user capital cap.
+              // Both eurAmount and cash_balance_eur are EUR-denominated.
+              if (eurAmount > cashBalanceEur) {
+                const deficit = Number((eurAmount - cashBalanceEur).toFixed(8));
+                return await blockBuy(
+                  'blocked_user_capital_exceeded',
+                  `BUY eurAmount (${eurAmount} EUR) exceeds user cash_balance_eur (${cashBalanceEur} EUR); deficit ${deficit} EUR.`,
+                  {
+                    user_id: body.user_id,
+                    eur_amount: eurAmount,
+                    cash_balance_eur: cashBalanceEur,
+                    deficit,
+                  },
+                );
+              }
             }
           } catch (e) {
-            console.warn('⚠️ [sign-and-send] Guard (a) error (skipped):', (e as Error).message);
+            console.warn('⚠️ [sign-and-send] Guard (a/a2) error (skipped, fail-open):', (e as Error).message);
           }
         } else {
-          console.warn('⚠️ [sign-and-send] Guard (a) skipped: missing body.user_id');
+          console.warn('⚠️ [sign-and-send] Guard (a/a2) skipped: missing body.user_id');
         }
 
         // ---- Guard (b): on-chain USDC balance of bot wallet ----
