@@ -9047,6 +9047,38 @@ async function executeTPSellWithLock(
     // Get current price for execution
     const priceData = await getMarketPrice(baseSymbol);
 
+    // ============= B2 GUARD: stale-snapshot defense (inside advisory lock) =============
+    try {
+      const _b2 = await assertSufficientInventory(
+        supabaseClient, intent.userId, intent.strategyId, baseSymbol, tpSellIntent.qtySuggested,
+        'tp_locked',
+      );
+      console.log(`✅ [B2_GUARD] tp_locked: avail=${_b2.availableQty} requested=${tpSellIntent.qtySuggested}`);
+    } catch (b2err) {
+      await supabaseClient.from('decision_events').insert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        side: 'SELL',
+        source: 'coordinator.tp_locked',
+        reason: 'blocked_insufficient_inventory_tp_locked',
+        decision_ts: new Date().toISOString(),
+        metadata: {
+          blocked: true,
+          qty_requested: tpSellIntent.qtySuggested,
+          available_qty: null,
+          deficit: parseB2Deficit(b2err),
+          context: 'tp_locked',
+          symbol: baseSymbol,
+          tp_pnl_pct: tpEvaluation?.pnlPct,
+          lock_key: lockKey,
+          error: String((b2err as any)?.message || b2err),
+        },
+      });
+      // finally{} releases the advisory lock.
+      return { action: 'DEFER', reason: 'blocked_insufficient_inventory_tp_locked', request_id: requestId, retry_in_ms: 0 };
+    }
+
     // Execute the TP SELL
     const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, strategyConfig, requestId, priceData);
 
