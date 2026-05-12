@@ -551,7 +551,121 @@ Deno.serve(async (req) => {
         }
       }
 
-      const buildResult = await buildTrade({
+      // ====================================================================
+      // SELL value cap (B6): fail-closed enforcement of MAX_SELL_WEI
+      // ====================================================================
+      if (body.side === 'SELL') {
+        const maxSellWeiStr = Deno.env.get('MAX_SELL_WEI');
+        if (!maxSellWeiStr) {
+          console.error('❌ [sign-and-send] MAX_SELL_WEI secret not configured — SELL refused fail-closed');
+          return new Response(JSON.stringify({
+            ok: false,
+            error: { code: 'MAX_SELL_WEI_NOT_CONFIGURED', message: 'MAX_SELL_WEI secret is not set; SELL refused fail-closed.' },
+          }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        let maxSellWei: bigint;
+        try {
+          maxSellWei = BigInt(maxSellWeiStr);
+        } catch (_e) {
+          console.error('❌ [sign-and-send] MAX_SELL_WEI is not a valid integer:', maxSellWeiStr);
+          return new Response(JSON.stringify({
+            ok: false,
+            error: { code: 'MAX_SELL_WEI_INVALID', message: 'MAX_SELL_WEI is not a valid integer.' },
+          }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        const sellAmountWei = BigInt(Math.floor(Number(body.amount) * 1e18));
+        if (sellAmountWei > maxSellWei) {
+          console.error(`🛑 [sign-and-send] SELL cap exceeded: ${sellAmountWei} > ${maxSellWei} (MAX_SELL_WEI)`);
+          if (body.user_id && body.strategy_id) {
+            const supabaseAdmin = createClient(PROJECT_URL!, SERVICE_ROLE!);
+            try {
+              const { error: insertError } = await supabaseAdmin.from('decision_events').insert({
+                user_id: body.user_id,
+                strategy_id: body.strategy_id,
+                symbol: body.symbol,
+                side: 'SELL',
+                source: 'onchain-sign-and-send.preflight',
+                reason: 'blocked_max_sell_wei_exceeded',
+                metadata: {
+                  blocked: true,
+                  sell_amount_wei: sellAmountWei.toString(),
+                  max_sell_wei: maxSellWei.toString(),
+                  amount: Number(body.amount),
+                  mock_trade_id: body.mock_trade_id ?? null,
+                },
+              });
+              if (insertError) {
+                console.error('❌ MAX_SELL_WEI_INSERT_FAILED', {
+                  error_code: insertError.code, error_message: insertError.message,
+                });
+              }
+            } catch (logErr) {
+              console.warn('⚠️ [sign-and-send] Failed to log decision_event:', logErr);
+            }
+          }
+          return new Response(JSON.stringify({
+            ok: false,
+            error: {
+              code: 'blocked_max_sell_wei_exceeded',
+              message: `SELL amount (${sellAmountWei} wei) exceeds MAX_SELL_WEI (${maxSellWei} wei).`,
+            },
+          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
+
+      // ====================================================================
+      // B6: intent retry storm breaker pre-check
+      // ====================================================================
+      if (body.user_id && body.strategy_id && body.symbol && body.side && body.amount) {
+        const supabaseAdmin = createClient(PROJECT_URL!, SERVICE_ROLE!);
+        const breakerCheck = await isIntentBreakerTripped(
+          supabaseAdmin,
+          body.user_id,
+          body.strategy_id,
+          body.symbol,
+          body.side as 'BUY' | 'SELL',
+          Number(body.amount),
+        );
+        if (breakerCheck.blocked) {
+          const cooldownSec = Math.ceil((breakerCheck.cooldownRemainingMs ?? 0) / 1000);
+          console.error('🛑 [B6_BREAKER] BLOCKED by intent retry storm', {
+            breaker: breakerCheck.breakerName,
+            cooldownSec,
+          });
+          try {
+            const { error: insertError } = await supabaseAdmin.from('decision_events').insert({
+              user_id: body.user_id,
+              strategy_id: body.strategy_id,
+              symbol: body.symbol,
+              side: body.side,
+              source: 'onchain-sign-and-send.preflight',
+              reason: 'blocked_intent_retry_storm',
+              metadata: {
+                blocked: true,
+                breaker_name: breakerCheck.breakerName,
+                cooldown_remaining_sec: cooldownSec,
+                amount: Number(body.amount),
+                mock_trade_id: body.mock_trade_id ?? null,
+              },
+            });
+            if (insertError) {
+              console.error('❌ B6_BREAKER_INSERT_FAILED', {
+                error_code: insertError.code, error_message: insertError.message,
+              });
+            }
+          } catch (logErr) {
+            console.warn('⚠️ [B6_BREAKER] Failed to log decision_event:', logErr);
+          }
+          return new Response(JSON.stringify({
+            ok: false,
+            error: {
+              code: 'blocked_intent_retry_storm',
+              message: `Intent retry storm breaker tripped for ${body.symbol} ${body.side}. Cooldown ${cooldownSec}s remaining.`,
+            },
+          }), { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
+
         symbol: body.symbol,
         side: body.side,
         amount: body.amount,
