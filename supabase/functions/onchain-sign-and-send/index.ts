@@ -666,6 +666,7 @@ Deno.serve(async (req) => {
         }
       }
 
+      const buildResult = await buildTrade({
         symbol: body.symbol,
         side: body.side,
         amount: body.amount,
@@ -677,6 +678,13 @@ Deno.serve(async (req) => {
       // CRITICAL: Handle build failure BEFORE accessing tradeId
       if (!buildResult.ok) {
         console.error('❌ [sign-and-send] BUILD FAILED (raw result):', JSON.stringify(buildResult, null, 2));
+        if (body.user_id && body.strategy_id) {
+          const supabaseAdmin = createClient(PROJECT_URL!, SERVICE_ROLE!);
+          await recordIntentFailure(
+            supabaseAdmin, body.user_id, body.strategy_id, body.symbol,
+            body.side as 'BUY' | 'SELL', Number(body.amount), 'BUILD_FAILED'
+          );
+        }
         return new Response(JSON.stringify({
           ok: false,
           error: { 
