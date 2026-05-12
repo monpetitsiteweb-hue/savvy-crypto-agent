@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
           console.error(`🛑 [sign-and-send] PRE-FLIGHT BLOCK: ${reason}`, { eurAmount, ...extra });
           if (body.user_id && body.strategy_id) {
             try {
-              await supabaseAdmin.from('decision_events').insert({
+              const { error: insertError } = await supabaseAdmin.from('decision_events').insert({
                 user_id: body.user_id,
                 strategy_id: body.strategy_id,
                 symbol: body.symbol,
@@ -295,6 +295,17 @@ Deno.serve(async (req) => {
                   ...extra,
                 },
               });
+              if (insertError) {
+                console.error('❌ BLOCK_BUY_INSERT_FAILED', {
+                  reason,
+                  user_id: body.user_id,
+                  strategy_id: body.strategy_id,
+                  symbol: body.symbol,
+                  error_code: insertError.code,
+                  error_message: insertError.message,
+                  error_details: insertError.details,
+                });
+              }
             } catch (logErr) {
               console.warn('⚠️ [sign-and-send] Failed to log decision_event:', logErr);
             }
