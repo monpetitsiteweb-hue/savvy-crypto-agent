@@ -2420,6 +2420,34 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades_active_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "past_positions_view"
+            referencedColumns: ["sell_trade_id"]
+          },
+          {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_open_positions"
+            referencedColumns: ["lot_id"]
+          },
+          {
             foreignKeyName: "mock_trades_strategy_id_fkey"
             columns: ["strategy_id"]
             isOneToOne: false
@@ -4348,6 +4376,34 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades_active_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "past_positions_view"
+            referencedColumns: ["sell_trade_id"]
+          },
+          {
+            foreignKeyName: "mock_trades_original_trade_id_fkey"
+            columns: ["original_trade_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_open_positions"
+            referencedColumns: ["lot_id"]
+          },
           {
             foreignKeyName: "mock_trades_strategy_id_fkey"
             columns: ["strategy_id"]
