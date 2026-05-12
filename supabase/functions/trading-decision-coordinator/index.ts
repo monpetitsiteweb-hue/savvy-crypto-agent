@@ -2757,6 +2757,44 @@ serve(async (req) => {
         logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
+      // ============= B2 GUARD: pre-emission inventory check (manual fast-path) =============
+      try {
+        const _b2 = await assertSufficientInventory(
+          supabaseClient, intent.userId, intent.strategyId, baseSymbol, sellAmount,
+          'manual_sell_fastpath',
+        );
+        console.log(`✅ [B2_GUARD] manual_sell_fastpath: avail=${_b2.availableQty} requested=${sellAmount}`);
+      } catch (b2err) {
+        const _avail = (b2err as any)?.availableQty ?? null;
+        await supabaseClient.from('decision_events').insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: 'SELL',
+          source: 'coordinator.manual_sell_fastpath',
+          reason: 'blocked_insufficient_inventory_manual',
+          decision_ts: new Date().toISOString(),
+          metadata: {
+            blocked: true,
+            qty_requested: sellAmount,
+            available_qty: _avail,
+            deficit: parseB2Deficit(b2err),
+            context: 'manual_sell_fastpath',
+            symbol: baseSymbol,
+            error: String((b2err as any)?.message || b2err),
+          },
+        });
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'insufficient_inventory',
+            reason: 'blocked_insufficient_inventory_manual',
+            qty_requested: sellAmount,
+          }),
+          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
       await assertParentExists(supabaseClient, payload.original_trade_id, 'L2662_manual_sell');
       const { error: insErr } = await supabaseClient.from("mock_trades").insert([payload]);
       if (insErr) {
