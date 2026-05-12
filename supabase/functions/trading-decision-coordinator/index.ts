@@ -5119,6 +5119,9 @@ async function executeTradeDirectly(
 
       // Insert all SELL rows
       console.log("[DEBUG][executeTradeDirectly] Inserting", sellRows.length, "per-lot SELL rows...");
+      for (const row of sellRows) {
+        await assertParentExists(supabaseClient, row.original_trade_id, 'L5073_perlot_direct');
+      }
       const { data: insertResults, error: insertError } = await supabaseClient
         .from("mock_trades")
         .insert(sellRows)
