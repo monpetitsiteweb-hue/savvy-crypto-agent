@@ -15,6 +15,31 @@ import {
   logExecutionClass,
 } from "../_shared/execution-semantics.ts";
 
+/**
+ * B5 GUARD: Verifies original_trade_id points to an existing mock_trades row.
+ * Throws if not found. Prevents ghost parent inserts (Task C 2026-05-11 root cause).
+ * Called immediately before INSERTs with original_trade_id.
+ */
+async function assertParentExists(
+  supabase: any,
+  parentId: string | null | undefined,
+  context: string,
+): Promise<void> {
+  if (!parentId) return; // null/undefined parent allowed (legacy path)
+  const { data, error } = await supabase
+    .from('mock_trades')
+    .select('id')
+    .eq('id', parentId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`[B5_GUARD] DB error checking parent existence: parent=${parentId} context=${context} error=${error.message}`);
+  }
+  if (!data) {
+    console.error('❌ [B5_GUARD] ORIGINAL_TRADE_ID_NOT_FOUND', { parentId, context });
+    throw new Error(`[B5_GUARD] ORIGINAL_TRADE_ID_NOT_FOUND: parent=${parentId} context=${context}`);
+  }
+}
+
 // ============= SIGNAL FUSION INTEGRATION =============
 // Import signal fusion module for Phase 1B READ-ONLY integration
 // Inlined from src/engine/signalFusion.ts for Deno compatibility
@@ -2685,6 +2710,7 @@ serve(async (req) => {
         logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
+      await assertParentExists(supabaseClient, payload.original_trade_id, 'L2662_manual_sell');
       const { error: insErr } = await supabaseClient.from("mock_trades").insert([payload]);
       if (insErr) {
         console.error("[coordinator] mock sell insert failed", insErr);
@@ -5093,6 +5119,9 @@ async function executeTradeDirectly(
 
       // Insert all SELL rows
       console.log("[DEBUG][executeTradeDirectly] Inserting", sellRows.length, "per-lot SELL rows...");
+      for (const row of sellRows) {
+        await assertParentExists(supabaseClient, row.original_trade_id, 'L5073_perlot_direct');
+      }
       const { data: insertResults, error: insertError } = await supabaseClient
         .from("mock_trades")
         .insert(sellRows)
@@ -8219,6 +8248,9 @@ async function executeTradeOrder(
           logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
         }
 
+        for (const row of sellRows) {
+          await assertParentExists(supabaseClient, row.original_trade_id, 'L8196_perlot_ud');
+        }
         const { data: insertResults, error: insertError } = await supabaseClient
           .from("mock_trades")
           .insert(sellRows)
@@ -8414,6 +8446,7 @@ async function executeTradeOrder(
         logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
+      await assertParentExists(supabaseClient, (mockTrade as any).original_trade_id, 'L8108_pool_path');
       const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
       if (error) {
