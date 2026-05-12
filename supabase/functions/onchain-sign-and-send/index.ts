@@ -1396,6 +1396,18 @@ Deno.serve(async (req) => {
         },
       });
 
+      // B6: record intent failure (BROADCAST_FAILED via exception)
+      try {
+        const _uid = (trade as any).user_id ?? body.user_id;
+        const _sid = (trade as any).strategy_id ?? body.strategy_id;
+        const _sym = (trade as any).symbol ?? body.symbol;
+        const _side = ((trade as any).side ?? body.side) as 'BUY' | 'SELL';
+        const _amt = Number((trade as any).amount ?? body.amount);
+        if (_uid && _sid && _sym && _side && _amt) {
+          await recordIntentFailure(supabase, _uid, _sid, _sym, _side, _amt, 'BROADCAST_FAILED');
+        }
+      } catch (_e) { /* non-blocking */ }
+
       return new Response(JSON.stringify({ 
         ok: false, 
         error: {
