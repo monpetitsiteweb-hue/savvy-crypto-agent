@@ -8233,6 +8233,40 @@ async function executeTradeOrder(
           return { success: false, error: "insufficient_position_size", effectiveConfig };
         }
 
+        // ============= B2 GUARD: fresh-read DB inventory check before emitting per-lot orders =============
+        // Critical defense against stale snapshot (root cause of bc828e14/9b2e645f double-SELL).
+        const _b2TotalQty = perLotSellOrders.reduce((sum, o) => sum + o.amount, 0);
+        try {
+          const _b2 = await assertSufficientInventory(
+            supabaseClient, intent.userId, intent.strategyId, baseSymbol, _b2TotalQty,
+            'perlot_ud',
+          );
+          console.log(`✅ [B2_GUARD] perlot_ud: avail=${_b2.availableQty} requested=${_b2TotalQty}`);
+        } catch (b2err) {
+          await supabaseClient.from('decision_events').insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: 'SELL',
+            source: 'coordinator.perlot_ud',
+            reason: 'blocked_insufficient_inventory_perlot_ud',
+            decision_ts: new Date().toISOString(),
+            metadata: {
+              blocked: true,
+              qty_requested: _b2TotalQty,
+              available_qty: null,
+              deficit: parseB2Deficit(b2err),
+              context: 'perlot_ud',
+              symbol: baseSymbol,
+              closeMode,
+              perLotCount: perLotSellOrders.length,
+              error: String((b2err as any)?.message || b2err),
+            },
+          });
+          // Skip emission entirely; do not populate intent.__perLotSellOrders.
+          return { success: false, error: 'blocked_insufficient_inventory_perlot_ud', effectiveConfig };
+        }
+
         // Store perLotSellOrders for multi-insert later
         // @ts-ignore - Adding custom field for per-lot processing
         intent.__perLotSellOrders = perLotSellOrders;
