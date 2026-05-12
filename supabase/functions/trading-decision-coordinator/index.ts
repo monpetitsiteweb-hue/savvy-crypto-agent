@@ -5122,6 +5122,38 @@ async function executeTradeDirectly(
       // =============================================================================
       console.log("============ STEP 3: PER-LOT SELL EXECUTION ============");
 
+      // ============= B2 GUARD: pre-emission inventory check (UD=OFF per-lot direct) =============
+      const _b2RequestedQty = intent.qtySuggested ?? 0;
+      if (_b2RequestedQty > 0) {
+        try {
+          const _b2 = await assertSufficientInventory(
+            supabaseClient, intent.userId, intent.strategyId, baseSymbol, _b2RequestedQty,
+            'perlot_direct',
+          );
+          console.log(`✅ [B2_GUARD] perlot_direct: avail=${_b2.availableQty} requested=${_b2RequestedQty}`);
+        } catch (b2err) {
+          await supabaseClient.from('decision_events').insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: 'SELL',
+            source: 'coordinator.perlot_direct',
+            reason: 'blocked_insufficient_inventory_perlot_direct',
+            decision_ts: new Date().toISOString(),
+            metadata: {
+              blocked: true,
+              qty_requested: _b2RequestedQty,
+              available_qty: null,
+              deficit: parseB2Deficit(b2err),
+              context: 'perlot_direct',
+              symbol: baseSymbol,
+              error: String((b2err as any)?.message || b2err),
+            },
+          });
+          return { success: false, error: 'blocked_insufficient_inventory_perlot_direct' };
+        }
+      }
+
       // Reconstruct open lots for this symbol
       const openLots = await reconstructOpenLotsFromDb(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
 
