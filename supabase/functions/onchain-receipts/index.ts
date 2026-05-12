@@ -1411,6 +1411,21 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
+
+    const isScheduled = body?.scheduled === true;
+    if (isScheduled) {
+      const cronSecret = Deno.env.get('CRON_SECRET');
+      const headerSecret = req.headers.get('x-cron-secret');
+      if (!cronSecret || headerSecret !== cronSecret) {
+        console.error('❌ ONCHAIN_RECEIPTS: CRON_SECRET mismatch or not set');
+        return new Response(
+          JSON.stringify({ success: false, error: 'forbidden' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      console.log('✅ ONCHAIN_RECEIPTS: CRON_SECRET validated for scheduled call');
+    }
+
     const { tradeId } = body;
 
     // =========================================================================
