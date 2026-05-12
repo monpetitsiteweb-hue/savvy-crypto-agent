@@ -15,6 +15,31 @@ import {
   logExecutionClass,
 } from "../_shared/execution-semantics.ts";
 
+/**
+ * B5 GUARD: Verifies original_trade_id points to an existing mock_trades row.
+ * Throws if not found. Prevents ghost parent inserts (Task C 2026-05-11 root cause).
+ * Called immediately before INSERTs with original_trade_id.
+ */
+async function assertParentExists(
+  supabase: any,
+  parentId: string | null | undefined,
+  context: string,
+): Promise<void> {
+  if (!parentId) return; // null/undefined parent allowed (legacy path)
+  const { data, error } = await supabase
+    .from('mock_trades')
+    .select('id')
+    .eq('id', parentId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`[B5_GUARD] DB error checking parent existence: parent=${parentId} context=${context} error=${error.message}`);
+  }
+  if (!data) {
+    console.error('❌ [B5_GUARD] ORIGINAL_TRADE_ID_NOT_FOUND', { parentId, context });
+    throw new Error(`[B5_GUARD] ORIGINAL_TRADE_ID_NOT_FOUND: parent=${parentId} context=${context}`);
+  }
+}
+
 // ============= SIGNAL FUSION INTEGRATION =============
 // Import signal fusion module for Phase 1B READ-ONLY integration
 // Inlined from src/engine/signalFusion.ts for Deno compatibility
