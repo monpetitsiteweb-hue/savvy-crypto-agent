@@ -8248,6 +8248,9 @@ async function executeTradeOrder(
           logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
         }
 
+        for (const row of sellRows) {
+          await assertParentExists(supabaseClient, row.original_trade_id, 'L8196_perlot_ud');
+        }
         const { data: insertResults, error: insertError } = await supabaseClient
           .from("mock_trades")
           .insert(sellRows)
