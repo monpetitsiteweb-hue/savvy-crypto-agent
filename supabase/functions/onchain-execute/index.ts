@@ -3,7 +3,7 @@
  * 
  * Safety Controls:
  * - EXECUTION_DRY_RUN: Default true (safe by default). Set to 'false' for live execution.
- * - MAX_SELL_WEI: Maximum sell amount per trade (default 0.2 ETH)
+ * - MAX_SELL_WEI: Maximum sell amount per trade (REQUIRED, fail-closed if unset)
  * - MAX_SLIPPAGE_BPS: Maximum allowed slippage (default 75 bps / 0.75%)
  * - Request-level dryRun flag: Can be set per-request for testing
  * 
