@@ -2710,6 +2710,7 @@ serve(async (req) => {
         logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
+      await assertParentExists(supabaseClient, payload.original_trade_id, 'L2662_manual_sell');
       const { error: insErr } = await supabaseClient.from("mock_trades").insert([payload]);
       if (insErr) {
         console.error("[coordinator] mock sell insert failed", insErr);
