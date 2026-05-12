@@ -3,7 +3,7 @@
  * 
  * Safety Controls:
  * - EXECUTION_DRY_RUN: Default true (safe by default). Set to 'false' for live execution.
- * - MAX_SELL_WEI: Maximum sell amount per trade (default 0.2 ETH)
+ * - MAX_SELL_WEI: Maximum sell amount per trade (REQUIRED, fail-closed if unset)
  * - MAX_SLIPPAGE_BPS: Maximum allowed slippage (default 75 bps / 0.75%)
  * - Request-level dryRun flag: Can be set per-request for testing
  * 
@@ -517,7 +517,15 @@ Deno.serve(async (req) => {
 
     // ========== Safety Guards ==========
     // Guard 1: MAX_SELL_WEI - Prevent excessively large trades
-    const MAX_SELL_WEI_STR = Deno.env.get('MAX_SELL_WEI') ?? '200000000000000000'; // 0.2 ETH default
+    const MAX_SELL_WEI_STR = Deno.env.get('MAX_SELL_WEI');
+    if (!MAX_SELL_WEI_STR) {
+      console.error('❌ [onchain-execute] MAX_SELL_WEI secret not configured — SELL refused fail-closed');
+      return new Response(JSON.stringify({
+        ok: false,
+        error: 'MAX_SELL_WEI_NOT_CONFIGURED',
+        message: 'MAX_SELL_WEI secret is not set; SELL refused fail-closed.',
+      }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
     const maxSellWei = BigInt(MAX_SELL_WEI_STR);
     
     // Guard 2: MAX_SLIPPAGE_BPS - Prevent excessive slippage

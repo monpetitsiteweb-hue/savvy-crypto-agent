@@ -24,6 +24,146 @@ const PROJECT_URL = Deno.env.get('SB_URL') ?? Deno.env.get('SUPABASE_URL');
 const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
 // ========================================================================
+// B6 INTENT CIRCUIT BREAKER
+// Tracks per-(user, strategy, symbol, side, qty_bucket_4dec) failure storms.
+// Trip: 2 failures within 10 min → block. Cooldown: 30 min. Window resets after 10 min idle.
+// Key encoding: breaker = 'intent_retry_storm:{SIDE}:{QTY_BUCKET_4DEC}'
+// ========================================================================
+const B6_FAILURE_THRESHOLD = 2;
+const B6_WINDOW_MS = 10 * 60 * 1000;
+const B6_COOLDOWN_MS = 30 * 60 * 1000;
+
+function b6BreakerName(side: 'BUY' | 'SELL', amount: number): string {
+  const bucket = Math.floor(amount * 10000) / 10000;
+  return `intent_retry_storm:${side}:${bucket.toFixed(4)}`;
+}
+
+async function isIntentBreakerTripped(
+  supabase: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  amount: number,
+): Promise<{ blocked: boolean; cooldownRemainingMs?: number; breakerName?: string }> {
+  const breaker = b6BreakerName(side, amount);
+  const { data, error } = await supabase
+    .from('execution_circuit_breakers')
+    .select('tripped, tripped_at, thresholds')
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .eq('symbol', symbol)
+    .eq('breaker', breaker)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[B6_BREAKER] check DB error (fail-open):', error.message);
+    return { blocked: false };
+  }
+  if (!data || !data.tripped || !data.tripped_at) return { blocked: false };
+
+  const cooldownMs = (data.thresholds?.cooldown_minutes ?? 30) * 60 * 1000;
+  const since = Date.now() - new Date(data.tripped_at).getTime();
+  if (since >= cooldownMs) return { blocked: false };
+  return { blocked: true, cooldownRemainingMs: cooldownMs - since, breakerName: breaker };
+}
+
+async function recordIntentFailure(
+  supabase: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  amount: number,
+  failureReason: string,
+): Promise<void> {
+  const breaker = b6BreakerName(side, amount);
+  const qtyBucket = Math.floor(amount * 10000) / 10000;
+  const now = new Date();
+
+  try {
+    const { data: existing } = await supabase
+      .from('execution_circuit_breakers')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .eq('symbol', symbol)
+      .eq('breaker', breaker)
+      .maybeSingle();
+
+    if (!existing) {
+      await supabase.from('execution_circuit_breakers').insert({
+        user_id: userId,
+        strategy_id: strategyId,
+        symbol,
+        breaker,
+        threshold_value: B6_FAILURE_THRESHOLD,
+        current_value: 1,
+        tripped: false,
+        last_reason: failureReason,
+        thresholds: {
+          failures_threshold: B6_FAILURE_THRESHOLD,
+          window_minutes: B6_WINDOW_MS / 60000,
+          cooldown_minutes: B6_COOLDOWN_MS / 60000,
+          qty_bucket: qtyBucket,
+          side,
+        },
+      });
+      console.log('[B6_BREAKER] first failure recorded', { breaker, failureReason });
+      return;
+    }
+
+    if (existing.tripped && existing.tripped_at) {
+      const trippedSinceMs = now.getTime() - new Date(existing.tripped_at).getTime();
+      if (trippedSinceMs > B6_COOLDOWN_MS) {
+        await supabase.from('execution_circuit_breakers').update({
+          tripped: false,
+          cleared_at: now.toISOString(),
+          current_value: 1,
+          last_reason: failureReason,
+          updated_at: now.toISOString(),
+        }).eq('id', existing.id);
+        console.log('[B6_BREAKER] cooldown elapsed → reset to 1', { breaker });
+        return;
+      }
+      console.warn('[B6_BREAKER] already tripped, in cooldown — failure ignored', { breaker });
+      return;
+    }
+
+    const sinceLastUpdate = now.getTime() - new Date(existing.updated_at).getTime();
+    if (sinceLastUpdate > B6_WINDOW_MS) {
+      await supabase.from('execution_circuit_breakers').update({
+        current_value: 1,
+        last_reason: failureReason,
+        updated_at: now.toISOString(),
+      }).eq('id', existing.id);
+      console.log('[B6_BREAKER] window expired → reset to 1', { breaker });
+      return;
+    }
+
+    const newCount = Number(existing.current_value) + 1;
+    const shouldTrip = newCount >= B6_FAILURE_THRESHOLD;
+
+    await supabase.from('execution_circuit_breakers').update({
+      current_value: newCount,
+      tripped: shouldTrip,
+      tripped_at: shouldTrip ? now.toISOString() : existing.tripped_at,
+      trip_count: shouldTrip ? (existing.trip_count + 1) : existing.trip_count,
+      last_reason: failureReason,
+      updated_at: now.toISOString(),
+    }).eq('id', existing.id);
+
+    if (shouldTrip) {
+      console.error('❌ [B6_BREAKER] TRIPPED', { breaker, newCount, failureReason });
+    } else {
+      console.log('[B6_BREAKER] failure recorded', { breaker, newCount, threshold: B6_FAILURE_THRESHOLD });
+    }
+  } catch (e) {
+    console.error('[B6_BREAKER] recordIntentFailure exception (non-blocking):', (e as Error).message);
+  }
+}
+
+// ========================================================================
 // Build Trade (internal helper - calls onchain-execute in build mode)
 // ========================================================================
 async function buildTrade(params: {
@@ -411,6 +551,121 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ====================================================================
+      // SELL value cap (B6): fail-closed enforcement of MAX_SELL_WEI
+      // ====================================================================
+      if (body.side === 'SELL') {
+        const maxSellWeiStr = Deno.env.get('MAX_SELL_WEI');
+        if (!maxSellWeiStr) {
+          console.error('❌ [sign-and-send] MAX_SELL_WEI secret not configured — SELL refused fail-closed');
+          return new Response(JSON.stringify({
+            ok: false,
+            error: { code: 'MAX_SELL_WEI_NOT_CONFIGURED', message: 'MAX_SELL_WEI secret is not set; SELL refused fail-closed.' },
+          }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        let maxSellWei: bigint;
+        try {
+          maxSellWei = BigInt(maxSellWeiStr);
+        } catch (_e) {
+          console.error('❌ [sign-and-send] MAX_SELL_WEI is not a valid integer:', maxSellWeiStr);
+          return new Response(JSON.stringify({
+            ok: false,
+            error: { code: 'MAX_SELL_WEI_INVALID', message: 'MAX_SELL_WEI is not a valid integer.' },
+          }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        const sellAmountWei = BigInt(Math.floor(Number(body.amount) * 1e18));
+        if (sellAmountWei > maxSellWei) {
+          console.error(`🛑 [sign-and-send] SELL cap exceeded: ${sellAmountWei} > ${maxSellWei} (MAX_SELL_WEI)`);
+          if (body.user_id && body.strategy_id) {
+            const supabaseAdmin = createClient(PROJECT_URL!, SERVICE_ROLE!);
+            try {
+              const { error: insertError } = await supabaseAdmin.from('decision_events').insert({
+                user_id: body.user_id,
+                strategy_id: body.strategy_id,
+                symbol: body.symbol,
+                side: 'SELL',
+                source: 'onchain-sign-and-send.preflight',
+                reason: 'blocked_max_sell_wei_exceeded',
+                metadata: {
+                  blocked: true,
+                  sell_amount_wei: sellAmountWei.toString(),
+                  max_sell_wei: maxSellWei.toString(),
+                  amount: Number(body.amount),
+                  mock_trade_id: body.mock_trade_id ?? null,
+                },
+              });
+              if (insertError) {
+                console.error('❌ MAX_SELL_WEI_INSERT_FAILED', {
+                  error_code: insertError.code, error_message: insertError.message,
+                });
+              }
+            } catch (logErr) {
+              console.warn('⚠️ [sign-and-send] Failed to log decision_event:', logErr);
+            }
+          }
+          return new Response(JSON.stringify({
+            ok: false,
+            error: {
+              code: 'blocked_max_sell_wei_exceeded',
+              message: `SELL amount (${sellAmountWei} wei) exceeds MAX_SELL_WEI (${maxSellWei} wei).`,
+            },
+          }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
+
+      // ====================================================================
+      // B6: intent retry storm breaker pre-check
+      // ====================================================================
+      if (body.user_id && body.strategy_id && body.symbol && body.side && body.amount) {
+        const supabaseAdmin = createClient(PROJECT_URL!, SERVICE_ROLE!);
+        const breakerCheck = await isIntentBreakerTripped(
+          supabaseAdmin,
+          body.user_id,
+          body.strategy_id,
+          body.symbol,
+          body.side as 'BUY' | 'SELL',
+          Number(body.amount),
+        );
+        if (breakerCheck.blocked) {
+          const cooldownSec = Math.ceil((breakerCheck.cooldownRemainingMs ?? 0) / 1000);
+          console.error('🛑 [B6_BREAKER] BLOCKED by intent retry storm', {
+            breaker: breakerCheck.breakerName,
+            cooldownSec,
+          });
+          try {
+            const { error: insertError } = await supabaseAdmin.from('decision_events').insert({
+              user_id: body.user_id,
+              strategy_id: body.strategy_id,
+              symbol: body.symbol,
+              side: body.side,
+              source: 'onchain-sign-and-send.preflight',
+              reason: 'blocked_intent_retry_storm',
+              metadata: {
+                blocked: true,
+                breaker_name: breakerCheck.breakerName,
+                cooldown_remaining_sec: cooldownSec,
+                amount: Number(body.amount),
+                mock_trade_id: body.mock_trade_id ?? null,
+              },
+            });
+            if (insertError) {
+              console.error('❌ B6_BREAKER_INSERT_FAILED', {
+                error_code: insertError.code, error_message: insertError.message,
+              });
+            }
+          } catch (logErr) {
+            console.warn('⚠️ [B6_BREAKER] Failed to log decision_event:', logErr);
+          }
+          return new Response(JSON.stringify({
+            ok: false,
+            error: {
+              code: 'blocked_intent_retry_storm',
+              message: `Intent retry storm breaker tripped for ${body.symbol} ${body.side}. Cooldown ${cooldownSec}s remaining.`,
+            },
+          }), { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
+
       const buildResult = await buildTrade({
         symbol: body.symbol,
         side: body.side,
@@ -423,6 +678,13 @@ Deno.serve(async (req) => {
       // CRITICAL: Handle build failure BEFORE accessing tradeId
       if (!buildResult.ok) {
         console.error('❌ [sign-and-send] BUILD FAILED (raw result):', JSON.stringify(buildResult, null, 2));
+        if (body.user_id && body.strategy_id) {
+          const supabaseAdmin = createClient(PROJECT_URL!, SERVICE_ROLE!);
+          await recordIntentFailure(
+            supabaseAdmin, body.user_id, body.strategy_id, body.symbol,
+            body.side as 'BUY' | 'SELL', Number(body.amount), 'BUILD_FAILED'
+          );
+        }
         return new Response(JSON.stringify({
           ok: false,
           error: { 
@@ -799,6 +1061,18 @@ Deno.serve(async (req) => {
         error: signError.message,
       });
 
+      // B6: record intent failure (SIGNING_FAILED)
+      try {
+        const _uid = (trade as any).user_id ?? body.user_id;
+        const _sid = (trade as any).strategy_id ?? body.strategy_id;
+        const _sym = (trade as any).symbol ?? body.symbol;
+        const _side = ((trade as any).side ?? body.side) as 'BUY' | 'SELL';
+        const _amt = Number((trade as any).amount ?? body.amount);
+        if (_uid && _sid && _sym && _side && _amt) {
+          await recordIntentFailure(supabase, _uid, _sid, _sym, _side, _amt, 'SIGNING_FAILED');
+        }
+      } catch (_e) { /* non-blocking */ }
+
       return new Response(JSON.stringify({
         ok: false, 
         error: {
@@ -874,6 +1148,18 @@ Deno.serve(async (req) => {
           side: trade.side,
           error: rpcResult.error.message || 'RPC error',
         });
+
+        // B6: record intent failure (BROADCAST_FAILED)
+        try {
+          const _uid = (trade as any).user_id ?? body.user_id;
+          const _sid = (trade as any).strategy_id ?? body.strategy_id;
+          const _sym = (trade as any).symbol ?? body.symbol;
+          const _side = ((trade as any).side ?? body.side) as 'BUY' | 'SELL';
+          const _amt = Number((trade as any).amount ?? body.amount);
+          if (_uid && _sid && _sym && _side && _amt) {
+            await recordIntentFailure(supabase, _uid, _sid, _sym, _side, _amt, 'BROADCAST_FAILED');
+          }
+        } catch (_e) { /* non-blocking */ }
 
         return new Response(JSON.stringify({
           ok: false, 
@@ -1109,6 +1395,18 @@ Deno.serve(async (req) => {
           error: broadcastError.message,
         },
       });
+
+      // B6: record intent failure (BROADCAST_FAILED via exception)
+      try {
+        const _uid = (trade as any).user_id ?? body.user_id;
+        const _sid = (trade as any).strategy_id ?? body.strategy_id;
+        const _sym = (trade as any).symbol ?? body.symbol;
+        const _side = ((trade as any).side ?? body.side) as 'BUY' | 'SELL';
+        const _amt = Number((trade as any).amount ?? body.amount);
+        if (_uid && _sid && _sym && _side && _amt) {
+          await recordIntentFailure(supabase, _uid, _sid, _sym, _side, _amt, 'BROADCAST_FAILED');
+        }
+      } catch (_e) { /* non-blocking */ }
 
       return new Response(JSON.stringify({ 
         ok: false, 
