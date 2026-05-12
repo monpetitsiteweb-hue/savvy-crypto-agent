@@ -40,6 +40,53 @@ async function assertParentExists(
   }
 }
 
+/**
+ * B2 GUARD: Verifies open inventory is sufficient for the requested SELL qty.
+ * Throws [B2_GUARD] INSUFFICIENT_INVENTORY if not.
+ * Dust tolerance: 1e-8 ETH (aligned with Postgres numeric(precision, 8)).
+ * Called immediately before any SELL emission.
+ */
+async function assertSufficientInventory(
+  supabase: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  qtyRequested: number,
+  context: string,
+): Promise<{ availableQty: number; openLots: any[] }> {
+  const DUST_TOLERANCE = 1e-8;
+  // Re-use existing helper: reconstructOpenLotsFromDb (hoisted).
+  const baseSymbol = (typeof toBaseSymbol === 'function') ? toBaseSymbol(symbol) : symbol;
+  const openLots = await reconstructOpenLotsFromDb(supabase, userId, strategyId, baseSymbol);
+  const availableQty = openLots.reduce(
+    (sum: number, lot: any) => sum + Number(lot?.remainingAmount ?? lot?.remaining_amount ?? 0),
+    0,
+  );
+  if (qtyRequested > availableQty + DUST_TOLERANCE) {
+    console.error('❌ [B2_GUARD] INSUFFICIENT_INVENTORY', {
+      userId, strategyId, symbol,
+      qtyRequested,
+      availableQty,
+      deficit: qtyRequested - availableQty,
+      context,
+      openLotsCount: openLots.length,
+    });
+    throw new Error(
+      `[B2_GUARD] INSUFFICIENT_INVENTORY: requested ${qtyRequested} ${symbol} > available ${availableQty} (deficit ${(qtyRequested - availableQty).toFixed(10)}) context=${context}`
+    );
+  }
+  return { availableQty, openLots };
+}
+
+/**
+ * B2 GUARD: Parse deficit from a thrown [B2_GUARD] error message for decision_event metadata.
+ */
+function parseB2Deficit(err: any): number | null {
+  const msg = String(err?.message || err || '');
+  const m = msg.match(/deficit\s+([0-9.\-eE]+)/);
+  return m ? Number(m[1]) : null;
+}
+
 // ============= SIGNAL FUSION INTEGRATION =============
 // Import signal fusion module for Phase 1B READ-ONLY integration
 // Inlined from src/engine/signalFusion.ts for Deno compatibility
@@ -2710,6 +2757,44 @@ serve(async (req) => {
         logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
+      // ============= B2 GUARD: pre-emission inventory check (manual fast-path) =============
+      try {
+        const _b2 = await assertSufficientInventory(
+          supabaseClient, intent.userId, intent.strategyId, baseSymbol, sellAmount,
+          'manual_sell_fastpath',
+        );
+        console.log(`✅ [B2_GUARD] manual_sell_fastpath: avail=${_b2.availableQty} requested=${sellAmount}`);
+      } catch (b2err) {
+        const _avail = (b2err as any)?.availableQty ?? null;
+        await supabaseClient.from('decision_events').insert({
+          user_id: intent.userId,
+          strategy_id: intent.strategyId,
+          symbol: baseSymbol,
+          side: 'SELL',
+          source: 'coordinator.manual_sell_fastpath',
+          reason: 'blocked_insufficient_inventory_manual',
+          decision_ts: new Date().toISOString(),
+          metadata: {
+            blocked: true,
+            qty_requested: sellAmount,
+            available_qty: _avail,
+            deficit: parseB2Deficit(b2err),
+            context: 'manual_sell_fastpath',
+            symbol: baseSymbol,
+            error: String((b2err as any)?.message || b2err),
+          },
+        });
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: 'insufficient_inventory',
+            reason: 'blocked_insufficient_inventory_manual',
+            qty_requested: sellAmount,
+          }),
+          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+
       await assertParentExists(supabaseClient, payload.original_trade_id, 'L2662_manual_sell');
       const { error: insErr } = await supabaseClient.from("mock_trades").insert([payload]);
       if (insErr) {
@@ -5036,6 +5121,38 @@ async function executeTradeDirectly(
       // STEP 3: PER-LOT SELL EXECUTION (UD=OFF path now uses same logic as UD=ON)
       // =============================================================================
       console.log("============ STEP 3: PER-LOT SELL EXECUTION ============");
+
+      // ============= B2 GUARD: pre-emission inventory check (UD=OFF per-lot direct) =============
+      const _b2RequestedQty = intent.qtySuggested ?? 0;
+      if (_b2RequestedQty > 0) {
+        try {
+          const _b2 = await assertSufficientInventory(
+            supabaseClient, intent.userId, intent.strategyId, baseSymbol, _b2RequestedQty,
+            'perlot_direct',
+          );
+          console.log(`✅ [B2_GUARD] perlot_direct: avail=${_b2.availableQty} requested=${_b2RequestedQty}`);
+        } catch (b2err) {
+          await supabaseClient.from('decision_events').insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: 'SELL',
+            source: 'coordinator.perlot_direct',
+            reason: 'blocked_insufficient_inventory_perlot_direct',
+            decision_ts: new Date().toISOString(),
+            metadata: {
+              blocked: true,
+              qty_requested: _b2RequestedQty,
+              available_qty: null,
+              deficit: parseB2Deficit(b2err),
+              context: 'perlot_direct',
+              symbol: baseSymbol,
+              error: String((b2err as any)?.message || b2err),
+            },
+          });
+          return { success: false, error: 'blocked_insufficient_inventory_perlot_direct' };
+        }
+      }
 
       // Reconstruct open lots for this symbol
       const openLots = await reconstructOpenLotsFromDb(supabaseClient, intent.userId, intent.strategyId, baseSymbol);
@@ -8116,6 +8233,40 @@ async function executeTradeOrder(
           return { success: false, error: "insufficient_position_size", effectiveConfig };
         }
 
+        // ============= B2 GUARD: fresh-read DB inventory check before emitting per-lot orders =============
+        // Critical defense against stale snapshot (root cause of bc828e14/9b2e645f double-SELL).
+        const _b2TotalQty = perLotSellOrders.reduce((sum, o) => sum + o.amount, 0);
+        try {
+          const _b2 = await assertSufficientInventory(
+            supabaseClient, intent.userId, intent.strategyId, baseSymbol, _b2TotalQty,
+            'perlot_ud',
+          );
+          console.log(`✅ [B2_GUARD] perlot_ud: avail=${_b2.availableQty} requested=${_b2TotalQty}`);
+        } catch (b2err) {
+          await supabaseClient.from('decision_events').insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: 'SELL',
+            source: 'coordinator.perlot_ud',
+            reason: 'blocked_insufficient_inventory_perlot_ud',
+            decision_ts: new Date().toISOString(),
+            metadata: {
+              blocked: true,
+              qty_requested: _b2TotalQty,
+              available_qty: null,
+              deficit: parseB2Deficit(b2err),
+              context: 'perlot_ud',
+              symbol: baseSymbol,
+              closeMode,
+              perLotCount: perLotSellOrders.length,
+              error: String((b2err as any)?.message || b2err),
+            },
+          });
+          // Skip emission entirely; do not populate intent.__perLotSellOrders.
+          return { success: false, error: 'blocked_insufficient_inventory_perlot_ud', effectiveConfig };
+        }
+
         // Store perLotSellOrders for multi-insert later
         // @ts-ignore - Adding custom field for per-lot processing
         intent.__perLotSellOrders = perLotSellOrders;
@@ -8780,6 +8931,36 @@ async function executeTPSell(
     // Get current price for execution
     const priceData = await getMarketPrice(baseSymbol);
 
+    // ============= B2 GUARD: stale-snapshot defense (CRITICAL FIX for bc828e14 double-SELL) =============
+    try {
+      const _b2 = await assertSufficientInventory(
+        supabaseClient, intent.userId, intent.strategyId, baseSymbol, tpSellIntent.qtySuggested,
+        'tp_stale_snapshot',
+      );
+      console.log(`✅ [B2_GUARD] tp_stale_snapshot: avail=${_b2.availableQty} requested=${tpSellIntent.qtySuggested}`);
+    } catch (b2err) {
+      await supabaseClient.from('decision_events').insert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        side: 'SELL',
+        source: 'coordinator.tp_fastpath',
+        reason: 'blocked_insufficient_inventory_tp_stale_snapshot',
+        decision_ts: new Date().toISOString(),
+        metadata: {
+          blocked: true,
+          qty_requested: tpSellIntent.qtySuggested,
+          available_qty: null,
+          deficit: parseB2Deficit(b2err),
+          context: 'tp_stale_snapshot',
+          symbol: baseSymbol,
+          tp_pnl_pct: tpEvaluation?.pnlPct,
+          error: String((b2err as any)?.message || b2err),
+        },
+      });
+      return { action: 'DEFER', reason: 'blocked_insufficient_inventory_tp_stale_snapshot', request_id: requestId, retry_in_ms: 0 };
+    }
+
     // Execute the TP SELL
     const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, strategyConfig, requestId, priceData);
 
@@ -8865,6 +9046,38 @@ async function executeTPSellWithLock(
 
     // Get current price for execution
     const priceData = await getMarketPrice(baseSymbol);
+
+    // ============= B2 GUARD: stale-snapshot defense (inside advisory lock) =============
+    try {
+      const _b2 = await assertSufficientInventory(
+        supabaseClient, intent.userId, intent.strategyId, baseSymbol, tpSellIntent.qtySuggested,
+        'tp_locked',
+      );
+      console.log(`✅ [B2_GUARD] tp_locked: avail=${_b2.availableQty} requested=${tpSellIntent.qtySuggested}`);
+    } catch (b2err) {
+      await supabaseClient.from('decision_events').insert({
+        user_id: intent.userId,
+        strategy_id: intent.strategyId,
+        symbol: baseSymbol,
+        side: 'SELL',
+        source: 'coordinator.tp_locked',
+        reason: 'blocked_insufficient_inventory_tp_locked',
+        decision_ts: new Date().toISOString(),
+        metadata: {
+          blocked: true,
+          qty_requested: tpSellIntent.qtySuggested,
+          available_qty: null,
+          deficit: parseB2Deficit(b2err),
+          context: 'tp_locked',
+          symbol: baseSymbol,
+          tp_pnl_pct: tpEvaluation?.pnlPct,
+          lock_key: lockKey,
+          error: String((b2err as any)?.message || b2err),
+        },
+      });
+      // finally{} releases the advisory lock.
+      return { action: 'DEFER', reason: 'blocked_insufficient_inventory_tp_locked', request_id: requestId, retry_in_ms: 0 };
+    }
 
     // Execute the TP SELL
     const executionResult = await executeTradeOrder(supabaseClient, tpSellIntent, strategyConfig, requestId, priceData);
