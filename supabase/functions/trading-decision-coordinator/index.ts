@@ -40,6 +40,53 @@ async function assertParentExists(
   }
 }
 
+/**
+ * B2 GUARD: Verifies open inventory is sufficient for the requested SELL qty.
+ * Throws [B2_GUARD] INSUFFICIENT_INVENTORY if not.
+ * Dust tolerance: 1e-8 ETH (aligned with Postgres numeric(precision, 8)).
+ * Called immediately before any SELL emission.
+ */
+async function assertSufficientInventory(
+  supabase: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  qtyRequested: number,
+  context: string,
+): Promise<{ availableQty: number; openLots: any[] }> {
+  const DUST_TOLERANCE = 1e-8;
+  // Re-use existing helper: reconstructOpenLotsFromDb (hoisted).
+  const baseSymbol = (typeof toBaseSymbol === 'function') ? toBaseSymbol(symbol) : symbol;
+  const openLots = await reconstructOpenLotsFromDb(supabase, userId, strategyId, baseSymbol);
+  const availableQty = openLots.reduce(
+    (sum: number, lot: any) => sum + Number(lot?.remainingAmount ?? lot?.remaining_amount ?? 0),
+    0,
+  );
+  if (qtyRequested > availableQty + DUST_TOLERANCE) {
+    console.error('❌ [B2_GUARD] INSUFFICIENT_INVENTORY', {
+      userId, strategyId, symbol,
+      qtyRequested,
+      availableQty,
+      deficit: qtyRequested - availableQty,
+      context,
+      openLotsCount: openLots.length,
+    });
+    throw new Error(
+      `[B2_GUARD] INSUFFICIENT_INVENTORY: requested ${qtyRequested} ${symbol} > available ${availableQty} (deficit ${(qtyRequested - availableQty).toFixed(10)}) context=${context}`
+    );
+  }
+  return { availableQty, openLots };
+}
+
+/**
+ * B2 GUARD: Parse deficit from a thrown [B2_GUARD] error message for decision_event metadata.
+ */
+function parseB2Deficit(err: any): number | null {
+  const msg = String(err?.message || err || '');
+  const m = msg.match(/deficit\s+([0-9.\-eE]+)/);
+  return m ? Number(m[1]) : null;
+}
+
 // ============= SIGNAL FUSION INTEGRATION =============
 // Import signal fusion module for Phase 1B READ-ONLY integration
 // Inlined from src/engine/signalFusion.ts for Deno compatibility
