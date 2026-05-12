@@ -24,6 +24,146 @@ const PROJECT_URL = Deno.env.get('SB_URL') ?? Deno.env.get('SUPABASE_URL');
 const SERVICE_ROLE = Deno.env.get('SB_SERVICE_ROLE') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
 // ========================================================================
+// B6 INTENT CIRCUIT BREAKER
+// Tracks per-(user, strategy, symbol, side, qty_bucket_4dec) failure storms.
+// Trip: 2 failures within 10 min → block. Cooldown: 30 min. Window resets after 10 min idle.
+// Key encoding: breaker = 'intent_retry_storm:{SIDE}:{QTY_BUCKET_4DEC}'
+// ========================================================================
+const B6_FAILURE_THRESHOLD = 2;
+const B6_WINDOW_MS = 10 * 60 * 1000;
+const B6_COOLDOWN_MS = 30 * 60 * 1000;
+
+function b6BreakerName(side: 'BUY' | 'SELL', amount: number): string {
+  const bucket = Math.floor(amount * 10000) / 10000;
+  return `intent_retry_storm:${side}:${bucket.toFixed(4)}`;
+}
+
+async function isIntentBreakerTripped(
+  supabase: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  amount: number,
+): Promise<{ blocked: boolean; cooldownRemainingMs?: number; breakerName?: string }> {
+  const breaker = b6BreakerName(side, amount);
+  const { data, error } = await supabase
+    .from('execution_circuit_breakers')
+    .select('tripped, tripped_at, thresholds')
+    .eq('user_id', userId)
+    .eq('strategy_id', strategyId)
+    .eq('symbol', symbol)
+    .eq('breaker', breaker)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[B6_BREAKER] check DB error (fail-open):', error.message);
+    return { blocked: false };
+  }
+  if (!data || !data.tripped || !data.tripped_at) return { blocked: false };
+
+  const cooldownMs = (data.thresholds?.cooldown_minutes ?? 30) * 60 * 1000;
+  const since = Date.now() - new Date(data.tripped_at).getTime();
+  if (since >= cooldownMs) return { blocked: false };
+  return { blocked: true, cooldownRemainingMs: cooldownMs - since, breakerName: breaker };
+}
+
+async function recordIntentFailure(
+  supabase: any,
+  userId: string,
+  strategyId: string,
+  symbol: string,
+  side: 'BUY' | 'SELL',
+  amount: number,
+  failureReason: string,
+): Promise<void> {
+  const breaker = b6BreakerName(side, amount);
+  const qtyBucket = Math.floor(amount * 10000) / 10000;
+  const now = new Date();
+
+  try {
+    const { data: existing } = await supabase
+      .from('execution_circuit_breakers')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('strategy_id', strategyId)
+      .eq('symbol', symbol)
+      .eq('breaker', breaker)
+      .maybeSingle();
+
+    if (!existing) {
+      await supabase.from('execution_circuit_breakers').insert({
+        user_id: userId,
+        strategy_id: strategyId,
+        symbol,
+        breaker,
+        threshold_value: B6_FAILURE_THRESHOLD,
+        current_value: 1,
+        tripped: false,
+        last_reason: failureReason,
+        thresholds: {
+          failures_threshold: B6_FAILURE_THRESHOLD,
+          window_minutes: B6_WINDOW_MS / 60000,
+          cooldown_minutes: B6_COOLDOWN_MS / 60000,
+          qty_bucket: qtyBucket,
+          side,
+        },
+      });
+      console.log('[B6_BREAKER] first failure recorded', { breaker, failureReason });
+      return;
+    }
+
+    if (existing.tripped && existing.tripped_at) {
+      const trippedSinceMs = now.getTime() - new Date(existing.tripped_at).getTime();
+      if (trippedSinceMs > B6_COOLDOWN_MS) {
+        await supabase.from('execution_circuit_breakers').update({
+          tripped: false,
+          cleared_at: now.toISOString(),
+          current_value: 1,
+          last_reason: failureReason,
+          updated_at: now.toISOString(),
+        }).eq('id', existing.id);
+        console.log('[B6_BREAKER] cooldown elapsed → reset to 1', { breaker });
+        return;
+      }
+      console.warn('[B6_BREAKER] already tripped, in cooldown — failure ignored', { breaker });
+      return;
+    }
+
+    const sinceLastUpdate = now.getTime() - new Date(existing.updated_at).getTime();
+    if (sinceLastUpdate > B6_WINDOW_MS) {
+      await supabase.from('execution_circuit_breakers').update({
+        current_value: 1,
+        last_reason: failureReason,
+        updated_at: now.toISOString(),
+      }).eq('id', existing.id);
+      console.log('[B6_BREAKER] window expired → reset to 1', { breaker });
+      return;
+    }
+
+    const newCount = Number(existing.current_value) + 1;
+    const shouldTrip = newCount >= B6_FAILURE_THRESHOLD;
+
+    await supabase.from('execution_circuit_breakers').update({
+      current_value: newCount,
+      tripped: shouldTrip,
+      tripped_at: shouldTrip ? now.toISOString() : existing.tripped_at,
+      trip_count: shouldTrip ? (existing.trip_count + 1) : existing.trip_count,
+      last_reason: failureReason,
+      updated_at: now.toISOString(),
+    }).eq('id', existing.id);
+
+    if (shouldTrip) {
+      console.error('❌ [B6_BREAKER] TRIPPED', { breaker, newCount, failureReason });
+    } else {
+      console.log('[B6_BREAKER] failure recorded', { breaker, newCount, threshold: B6_FAILURE_THRESHOLD });
+    }
+  } catch (e) {
+    console.error('[B6_BREAKER] recordIntentFailure exception (non-blocking):', (e as Error).message);
+  }
+}
+
+// ========================================================================
 // Build Trade (internal helper - calls onchain-execute in build mode)
 // ========================================================================
 async function buildTrade(params: {
