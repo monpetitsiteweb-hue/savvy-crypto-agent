@@ -1092,7 +1092,7 @@ async function finalizeMockTradeAndSettle(params: {
   // ── Idempotence applicative : skip si déjà finalisé ───────────────────
   const { data: existingMock } = await supabase
     .from('mock_trades')
-    .select('execution_confirmed, settlement_status')
+    .select('execution_confirmed, settlement_status, original_trade_id, realized_pnl, tx_hash')
     .eq('id', mockTradeId)
     .maybeSingle();
 
@@ -1106,6 +1106,24 @@ async function finalizeMockTradeAndSettle(params: {
       txHash,
     });
     return { ok: true, reason: 'already_finalized' };
+  }
+
+  // ── B-fix idempotence guard: protect forensic FIFO corrections ────────
+  // If the row already has a complete FIFO stamp + tx_hash + execution_confirmed,
+  // do NOT re-finalize — re-polling on-chain receipts would silently overwrite
+  // any forensic corrections (e.g. amount split, parent re-mapping).
+  if (
+    existingMock?.original_trade_id != null &&
+    existingMock?.realized_pnl != null &&
+    existingMock?.execution_confirmed === true &&
+    existingMock?.tx_hash != null
+  ) {
+    console.log('[onchain-receipts] SKIP idempotent finalize', {
+      mock_trade_id: mockTradeId,
+      tx_hash: txHash,
+      reason: 'already_finalized_with_fifo',
+    });
+    return { ok: true, reason: 'already_finalized_with_fifo' };
   }
 
   // ── Strategy ID fallback : recover from mock_trades if missing on real_trades ──
