@@ -133,6 +133,8 @@ export const UnifiedPortfolioDisplay = () => {
     return merged;
   }, [holdingsPrices, marketData]);
 
+  // Per-asset breakdown (cards) still uses live prices.
+  // TOTALS below are bound directly to the RPC (single source of truth).
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
@@ -142,6 +144,25 @@ export const UnifiedPortfolioDisplay = () => {
       testMode
     );
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
+
+  // Authoritative totals from get_portfolio_metrics RPC.
+  // Never recompute these client-side.
+  const rpcTotals = useMemo(() => {
+    const totalPnlPct = metrics.starting_capital_eur > 0
+      ? (metrics.total_pnl_eur / metrics.starting_capital_eur) * 100
+      : 0;
+    return {
+      cashEur: metrics.cash_balance_eur || 0,
+      openPositionsValueEur: metrics.current_position_value_eur || 0,
+      totalPortfolioValueEur: metrics.total_portfolio_value_eur || 0,
+      unrealizedPnlEur: metrics.unrealized_pnl_eur || 0,
+      realizedPnlEur: metrics.realized_pnl_eur || 0,
+      totalPnlEur: metrics.total_pnl_eur || 0,
+      totalPnlPct,
+      // Gas is not in RPC — kept from local computation (display-only)
+      gasSpentEur: portfolioValuation.gasSpentEur,
+    };
+  }, [metrics, portfolioValuation.gasSpentEur]);
 
   // Wallet asset display (positions breakdown) — use effectivePrices to stay consistent with valuation
   // liveAggregates: Compute per-asset breakdown for BOTH TEST and REAL modes
@@ -300,11 +321,11 @@ export const UnifiedPortfolioDisplay = () => {
       MOCK_GAS_PER_TX_EUR,
       gasSpentEur: portfolioValuation.gasSpentEur,
       cashEur: portfolioValuation.cashEur,
-      unrealizedPnlEur: portfolioValuation.unrealizedPnlEur,
+      unrealizedPnlEur: rpcTotals.unrealizedPnlEur,
       openPositionsValueEur: portfolioValuation.openPositionsValueEur,
-      totalPortfolioValueEur: portfolioValuation.totalPortfolioValueEur,
-      equation: `${portfolioValuation.cashEur.toFixed(2)} + ${portfolioValuation.unrealizedPnlEur.toFixed(2)} - ${portfolioValuation.gasSpentEur.toFixed(2)} = ${portfolioValuation.totalPortfolioValueEur.toFixed(2)}`,
-      totalPnlEur: portfolioValuation.totalPnlEur,
+      totalPortfolioValueEur: rpcTotals.totalPortfolioValueEur,
+      equation: `${portfolioValuation.cashEur.toFixed(2)} + ${rpcTotals.unrealizedPnlEur.toFixed(2)} - ${portfolioValuation.gasSpentEur.toFixed(2)} = ${rpcTotals.totalPortfolioValueEur.toFixed(2)}`,
+      totalPnlEur: rpcTotals.totalPnlEur,
       missingSymbols: portfolioValuation.missingSymbols,
       positions,
     });
@@ -629,14 +650,14 @@ export const UnifiedPortfolioDisplay = () => {
                 <TooltipTrigger asChild>
                   <div className="text-center cursor-help py-2">
                     <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Total Live Portfolio Value</div>
-                    <div className={`text-4xl font-bold ${portfolioValuation.totalPnlEur >= 0 ? 'text-white' : 'text-red-400'}`}>
-                      {formatEuro(portfolioValuation.totalPortfolioValueEur)}
+                    <div className={`text-4xl font-bold ${rpcTotals.totalPnlEur >= 0 ? 'text-white' : 'text-red-400'}`}>
+                      {formatEuro(rpcTotals.totalPortfolioValueEur)}
                     </div>
                     {(() => {
-                      const pnlDisplay = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                      const pnlDisplay = formatPnlWithSign(rpcTotals.totalPnlEur);
                       return (
                         <div className={`text-sm mt-1 ${pnlDisplay.colorClass}`}>
-                          {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) vs Initial Capital
+                          {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(rpcTotals.totalPnlPct)}) vs Initial Capital
                         </div>
                       );
                     })()}
@@ -687,11 +708,11 @@ export const UnifiedPortfolioDisplay = () => {
                       <div className="cursor-help">
                         <div className="text-xs text-slate-400 mb-1">Total P&L</div>
                         {(() => {
-                          const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                          const pnl = formatPnlWithSign(rpcTotals.totalPnlEur);
                           return (
                             <div className={`text-2xl font-bold ${pnl.colorClass}`}>
                               {pnl.sign}{pnl.value}
-                              <span className="text-base font-semibold ml-1.5">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
+                              <span className="text-base font-semibold ml-1.5">({formatPercentage(rpcTotals.totalPnlPct)})</span>
                             </div>
                           );
                         })()}
@@ -717,7 +738,7 @@ export const UnifiedPortfolioDisplay = () => {
                           )}
                         </div>
                         {(() => {
-                          const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                          const unrealPnl = formatPnlWithSign(rpcTotals.unrealizedPnlEur);
                           return (
                             <div className={`text-lg font-semibold ${unrealPnl.colorClass} opacity-90`}>
                               {unrealPnl.sign}{unrealPnl.value}
@@ -741,9 +762,9 @@ export const UnifiedPortfolioDisplay = () => {
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Where Your Money Is Now</div>
                 
                 {(() => {
-                  const cash = portfolioValuation.cashEur;
-                  const invested = portfolioValuation.openPositionsValueEur;
-                  const gas = portfolioValuation.gasSpentEur;
+                  const cash = rpcTotals.cashEur;
+                  const invested = rpcTotals.openPositionsValueEur;
+                  const gas = rpcTotals.gasSpentEur;
                   const total = cash + invested;
                   
                   const cashPct = total > 0 ? (cash / total) * 100 : 100;
@@ -869,7 +890,7 @@ export const UnifiedPortfolioDisplay = () => {
                 </>
               )}
               
-              {liveAggregates.walletAssets.length === 0 && !tradesLoading && (
+              {openTrades.length === 0 && !tradesLoading && (
                 <div className="text-center py-6">
                   <p className="text-slate-400 text-sm">No open positions. Start trading to see holdings.</p>
                 </div>

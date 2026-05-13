@@ -141,6 +141,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     return merged;
   }, [holdingsPrices, marketData]);
 
+  // Per-asset live valuation (cards, missing-price warnings) only.
+  // TOTALS below are bound directly to the RPC.
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
@@ -150,6 +152,23 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       testMode
     );
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
+
+  // Authoritative totals from get_portfolio_metrics RPC
+  const rpcTotals = useMemo(() => {
+    const totalPnlPctLocal = metrics.starting_capital_eur > 0
+      ? (metrics.total_pnl_eur / metrics.starting_capital_eur) * 100
+      : 0;
+    return {
+      cashEur: metrics.cash_balance_eur || 0,
+      openPositionsValueEur: metrics.current_position_value_eur || 0,
+      totalPortfolioValueEur: metrics.total_portfolio_value_eur || 0,
+      unrealizedPnlEur: metrics.unrealized_pnl_eur || 0,
+      realizedPnlEur: metrics.realized_pnl_eur || 0,
+      totalPnlEur: metrics.total_pnl_eur || 0,
+      totalPnlPct: totalPnlPctLocal,
+      gasSpentEur: rpcTotals.gasSpentEur,
+    };
+  }, [metrics, rpcTotals.gasSpentEur]);
 
   // SINGLE SOURCE OF TRUTH: Past positions use DB snapshot fields only (no frontend calculation)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
@@ -717,21 +736,21 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Cash</span>
-                <span className="text-sm">{formatEuro(portfolioValuation.cashEur)}</span>
+                <span className="text-sm">{formatEuro(rpcTotals.cashEur)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground">Open Positions</span>
-                <span className="text-sm">{formatEuro(portfolioValuation.openPositionsValueEur)}</span>
+                <span className="text-sm">{formatEuro(rpcTotals.openPositionsValueEur)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Fuel className="h-3 w-3" /> Gas (est.)
                 </span>
-                <span className="text-sm text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</span>
+                <span className="text-sm text-amber-400">−{formatEuro(rpcTotals.gasSpentEur)}</span>
               </div>
               <div className="flex justify-between items-center border-t pt-2">
                 <span className="text-xs text-muted-foreground font-medium">Total Value</span>
-                <span className="text-lg font-bold">{formatEuro(portfolioValuation.totalPortfolioValueEur)}</span>
+                <span className="text-lg font-bold">{formatEuro(rpcTotals.totalPortfolioValueEur)}</span>
               </div>
             </div>
           </Card>
@@ -745,9 +764,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
             <div className="space-y-2">
               {(() => {
                 // Use portfolioMath for consistent P&L calculation
-                const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
-                const realPnl = formatPnlWithSign(portfolioValuation.realizedPnlEur);
-                const totalPnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                const unrealPnl = formatPnlWithSign(rpcTotals.unrealizedPnlEur);
+                const realPnl = formatPnlWithSign(rpcTotals.realizedPnlEur);
+                const totalPnl = formatPnlWithSign(rpcTotals.totalPnlEur);
                 
                 return (
                   <>
@@ -776,7 +795,7 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                     <div className="flex justify-between items-center border-t pt-2">
                       <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
                       <span className={`text-sm font-semibold ${totalPnl.colorClass}`}>
-                        {totalPnl.sign}{totalPnl.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) — {totalPnl.label}
+                        {totalPnl.sign}{totalPnl.value} ({formatPercentage(rpcTotals.totalPnlPct)}) — {totalPnl.label}
                       </span>
                     </div>
                   </>
