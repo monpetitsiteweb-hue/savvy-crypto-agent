@@ -162,6 +162,8 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
     return merged;
   }, [holdingsPrices, marketData]);
 
+  // Per-asset live valuation (cards, missing-price warnings) only.
+  // TOTALS below are bound directly to the RPC.
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
@@ -171,6 +173,20 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       testMode
     );
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
+
+  // Authoritative totals from get_portfolio_metrics RPC
+  const rpcTotals = useMemo(() => {
+    const totalPnlPctLocal = metrics.starting_capital_eur > 0
+      ? (metrics.total_pnl_eur / metrics.starting_capital_eur) * 100
+      : 0;
+    return {
+      totalPnlEur: metrics.total_pnl_eur || 0,
+      totalPnlPct: totalPnlPctLocal,
+      realizedPnlEur: metrics.realized_pnl_eur || 0,
+      unrealizedPnlEur: metrics.unrealized_pnl_eur || 0,
+      gasSpentEur: portfolioValuation.gasSpentEur,
+    };
+  }, [metrics, portfolioValuation.gasSpentEur]);
 
   useEffect(() => {
     // Run for both TEST and REAL modes; the function itself applies the
