@@ -141,6 +141,8 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
     return merged;
   }, [holdingsPrices, marketData]);
 
+  // Per-asset live valuation (cards, missing-price warnings) only.
+  // TOTALS below are bound directly to the RPC.
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
@@ -150,6 +152,23 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       testMode
     );
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
+
+  // Authoritative totals from get_portfolio_metrics RPC
+  const rpcTotals = useMemo(() => {
+    const totalPnlPctLocal = metrics.starting_capital_eur > 0
+      ? (metrics.total_pnl_eur / metrics.starting_capital_eur) * 100
+      : 0;
+    return {
+      cashEur: metrics.cash_balance_eur || 0,
+      openPositionsValueEur: metrics.current_position_value_eur || 0,
+      totalPortfolioValueEur: metrics.total_portfolio_value_eur || 0,
+      unrealizedPnlEur: metrics.unrealized_pnl_eur || 0,
+      realizedPnlEur: metrics.realized_pnl_eur || 0,
+      totalPnlEur: metrics.total_pnl_eur || 0,
+      totalPnlPct: totalPnlPctLocal,
+      gasSpentEur: portfolioValuation.gasSpentEur,
+    };
+  }, [metrics, portfolioValuation.gasSpentEur]);
 
   // SINGLE SOURCE OF TRUTH: Past positions use DB snapshot fields only (no frontend calculation)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
