@@ -321,11 +321,11 @@ export const UnifiedPortfolioDisplay = () => {
       MOCK_GAS_PER_TX_EUR,
       gasSpentEur: portfolioValuation.gasSpentEur,
       cashEur: portfolioValuation.cashEur,
-      unrealizedPnlEur: portfolioValuation.unrealizedPnlEur,
+      unrealizedPnlEur: rpcTotals.unrealizedPnlEur,
       openPositionsValueEur: portfolioValuation.openPositionsValueEur,
-      totalPortfolioValueEur: portfolioValuation.totalPortfolioValueEur,
-      equation: `${portfolioValuation.cashEur.toFixed(2)} + ${portfolioValuation.unrealizedPnlEur.toFixed(2)} - ${portfolioValuation.gasSpentEur.toFixed(2)} = ${portfolioValuation.totalPortfolioValueEur.toFixed(2)}`,
-      totalPnlEur: portfolioValuation.totalPnlEur,
+      totalPortfolioValueEur: rpcTotals.totalPortfolioValueEur,
+      equation: `${portfolioValuation.cashEur.toFixed(2)} + ${rpcTotals.unrealizedPnlEur.toFixed(2)} - ${portfolioValuation.gasSpentEur.toFixed(2)} = ${rpcTotals.totalPortfolioValueEur.toFixed(2)}`,
+      totalPnlEur: rpcTotals.totalPnlEur,
       missingSymbols: portfolioValuation.missingSymbols,
       positions,
     });
@@ -650,14 +650,14 @@ export const UnifiedPortfolioDisplay = () => {
                 <TooltipTrigger asChild>
                   <div className="text-center cursor-help py-2">
                     <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Total Live Portfolio Value</div>
-                    <div className={`text-4xl font-bold ${portfolioValuation.totalPnlEur >= 0 ? 'text-white' : 'text-red-400'}`}>
-                      {formatEuro(portfolioValuation.totalPortfolioValueEur)}
+                    <div className={`text-4xl font-bold ${rpcTotals.totalPnlEur >= 0 ? 'text-white' : 'text-red-400'}`}>
+                      {formatEuro(rpcTotals.totalPortfolioValueEur)}
                     </div>
                     {(() => {
-                      const pnlDisplay = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                      const pnlDisplay = formatPnlWithSign(rpcTotals.totalPnlEur);
                       return (
                         <div className={`text-sm mt-1 ${pnlDisplay.colorClass}`}>
-                          {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(portfolioValuation.totalPnlPct)}) vs Initial Capital
+                          {pnlDisplay.sign}{pnlDisplay.value} ({formatPercentage(rpcTotals.totalPnlPct)}) vs Initial Capital
                         </div>
                       );
                     })()}
@@ -708,11 +708,11 @@ export const UnifiedPortfolioDisplay = () => {
                       <div className="cursor-help">
                         <div className="text-xs text-slate-400 mb-1">Total P&L</div>
                         {(() => {
-                          const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                          const pnl = formatPnlWithSign(rpcTotals.totalPnlEur);
                           return (
                             <div className={`text-2xl font-bold ${pnl.colorClass}`}>
                               {pnl.sign}{pnl.value}
-                              <span className="text-base font-semibold ml-1.5">({formatPercentage(portfolioValuation.totalPnlPct)})</span>
+                              <span className="text-base font-semibold ml-1.5">({formatPercentage(rpcTotals.totalPnlPct)})</span>
                             </div>
                           );
                         })()}
@@ -738,7 +738,7 @@ export const UnifiedPortfolioDisplay = () => {
                           )}
                         </div>
                         {(() => {
-                          const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                          const unrealPnl = formatPnlWithSign(rpcTotals.unrealizedPnlEur);
                           return (
                             <div className={`text-lg font-semibold ${unrealPnl.colorClass} opacity-90`}>
                               {unrealPnl.sign}{unrealPnl.value}
