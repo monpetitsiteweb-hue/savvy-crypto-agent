@@ -133,6 +133,8 @@ export const UnifiedPortfolioDisplay = () => {
     return merged;
   }, [holdingsPrices, marketData]);
 
+  // Per-asset breakdown (cards) still uses live prices.
+  // TOTALS below are bound directly to the RPC (single source of truth).
   const portfolioValuation: PortfolioValuation = useMemo(() => {
     return computeFullPortfolioValuation(
       metrics,
@@ -142,6 +144,25 @@ export const UnifiedPortfolioDisplay = () => {
       testMode
     );
   }, [metrics, openTrades, effectivePrices, txCount, testMode]);
+
+  // Authoritative totals from get_portfolio_metrics RPC.
+  // Never recompute these client-side.
+  const rpcTotals = useMemo(() => {
+    const totalPnlPct = metrics.starting_capital_eur > 0
+      ? (metrics.total_pnl_eur / metrics.starting_capital_eur) * 100
+      : 0;
+    return {
+      cashEur: metrics.cash_balance_eur || 0,
+      openPositionsValueEur: metrics.current_position_value_eur || 0,
+      totalPortfolioValueEur: metrics.total_portfolio_value_eur || 0,
+      unrealizedPnlEur: metrics.unrealized_pnl_eur || 0,
+      realizedPnlEur: metrics.realized_pnl_eur || 0,
+      totalPnlEur: metrics.total_pnl_eur || 0,
+      totalPnlPct,
+      // Gas is not in RPC — kept from local computation (display-only)
+      gasSpentEur: portfolioValuation.gasSpentEur,
+    };
+  }, [metrics, portfolioValuation.gasSpentEur]);
 
   // Wallet asset display (positions breakdown) — use effectivePrices to stay consistent with valuation
   // liveAggregates: Compute per-asset breakdown for BOTH TEST and REAL modes
