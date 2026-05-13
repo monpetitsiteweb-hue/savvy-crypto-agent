@@ -5333,7 +5333,12 @@ async function executeTradeDirectly(
       // Insert all SELL rows
       console.log("[DEBUG][executeTradeDirectly] Inserting", sellRows.length, "per-lot SELL rows...");
       for (const row of sellRows) {
-        await assertParentExists(supabaseClient, row.original_trade_id, 'L5073_perlot_direct');
+        try {
+          await assertParentValid(supabaseClient, row.original_trade_id, Number(row.amount), 'L5073_perlot_direct');
+        } catch (b5err) {
+          await logB5Block(supabaseClient, intent, baseSymbol, 'L5073_perlot_direct', row.original_trade_id, Number(row.amount), b5err);
+          return { success: false, error: 'b5_guard_blocked', reason: String((b5err as any)?.message || b5err) };
+        }
       }
       const { data: insertResults, error: insertError } = await supabaseClient
         .from("mock_trades")
