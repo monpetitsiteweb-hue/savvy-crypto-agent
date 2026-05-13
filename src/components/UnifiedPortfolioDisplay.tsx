@@ -890,7 +890,7 @@ export const UnifiedPortfolioDisplay = () => {
                 </>
               )}
               
-              {liveAggregates.walletAssets.length === 0 && !tradesLoading && (
+              {openTrades.length === 0 && !tradesLoading && (
                 <div className="text-center py-6">
                   <p className="text-slate-400 text-sm">No open positions. Start trading to see holdings.</p>
                 </div>
