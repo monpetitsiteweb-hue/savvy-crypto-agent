@@ -8501,7 +8501,12 @@ async function executeTradeOrder(
         }
 
         for (const row of sellRows) {
-          await assertParentExists(supabaseClient, row.original_trade_id, 'L8196_perlot_ud');
+          try {
+            await assertParentValid(supabaseClient, row.original_trade_id, Number(row.amount), 'L8196_perlot_ud');
+          } catch (b5err) {
+            await logB5Block(supabaseClient, intent, baseSymbol, 'L8196_perlot_ud', row.original_trade_id, Number(row.amount), b5err);
+            return { success: false, error: 'b5_guard_blocked', reason: String((b5err as any)?.message || b5err) };
+          }
         }
         const { data: insertResults, error: insertError } = await supabaseClient
           .from("mock_trades")
