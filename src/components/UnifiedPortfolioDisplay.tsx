@@ -762,9 +762,9 @@ export const UnifiedPortfolioDisplay = () => {
                 <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Where Your Money Is Now</div>
                 
                 {(() => {
-                  const cash = portfolioValuation.cashEur;
-                  const invested = portfolioValuation.openPositionsValueEur;
-                  const gas = portfolioValuation.gasSpentEur;
+                  const cash = rpcTotals.cashEur;
+                  const invested = rpcTotals.openPositionsValueEur;
+                  const gas = rpcTotals.gasSpentEur;
                   const total = cash + invested;
                   
                   const cashPct = total > 0 ? (cash / total) * 100 : 100;
