@@ -16,27 +16,115 @@ import {
 } from "../_shared/execution-semantics.ts";
 
 /**
- * B5 GUARD: Verifies original_trade_id points to an existing mock_trades row.
- * Throws if not found. Prevents ghost parent inserts (Task C 2026-05-11 root cause).
- * Called immediately before INSERTs with original_trade_id.
+ * B5 GUARD (HARDENED 2026-05-13): Verifies original_trade_id points to a VALID
+ * BUY parent that can be sold against. Beyond mere existence, validates:
+ *  - row is BUY (not SELL)
+ *  - not corrupted, not closed (is_open_position=true)
+ *  - execution_confirmed=true
+ *  - price is finite, > 0, and < 1,000,000 EUR/unit (rejects ghost placeholders)
+ *  - parent has enough remaining qty (parent.amount - Σ(prior non-corrupt SELLs)) >= sellQty - 1e-8
+ * Throws on any failure. Tolerance 1e-8 aligned with B2 guard.
+ * Replaces previous assertParentExists.
  */
-async function assertParentExists(
+async function assertParentValid(
   supabase: any,
   parentId: string | null | undefined,
+  sellQty: number,
   context: string,
 ): Promise<void> {
-  if (!parentId) return; // null/undefined parent allowed (legacy path)
-  const { data, error } = await supabase
+  if (!parentId) return; // null/undefined parent allowed (legacy unlinked SELL path)
+
+  const { data: parent, error } = await supabase
     .from('mock_trades')
-    .select('id')
+    .select('id, trade_type, amount, price, execution_confirmed, is_corrupted, is_open_position')
     .eq('id', parentId)
     .maybeSingle();
+
   if (error) {
-    throw new Error(`[B5_GUARD] DB error checking parent existence: parent=${parentId} context=${context} error=${error.message}`);
+    throw new Error(`[B5_GUARD] db_error: parentId=${parentId} context=${context} error=${error.message}`);
   }
-  if (!data) {
-    console.error('❌ [B5_GUARD] ORIGINAL_TRADE_ID_NOT_FOUND', { parentId, context });
-    throw new Error(`[B5_GUARD] ORIGINAL_TRADE_ID_NOT_FOUND: parent=${parentId} context=${context}`);
+  if (!parent) {
+    console.error('❌ [B5_GUARD] parent_not_found', { parentId, context });
+    throw new Error(`[B5_GUARD] parent_not_found: parentId=${parentId} context=${context}`);
+  }
+  if (parent.trade_type !== 'buy') {
+    throw new Error(`[B5_GUARD] parent_wrong_type: parentId=${parentId} trade_type=${parent.trade_type} context=${context}`);
+  }
+  if (parent.is_corrupted === true) {
+    throw new Error(`[B5_GUARD] parent_corrupted: parentId=${parentId} context=${context}`);
+  }
+  if (parent.execution_confirmed !== true) {
+    throw new Error(`[B5_GUARD] parent_not_confirmed: parentId=${parentId} context=${context}`);
+  }
+  const price = Number(parent.price);
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`[B5_GUARD] parent_invalid_price: parentId=${parentId} price=${parent.price} context=${context}`);
+  }
+  if (price > 1_000_000) {
+    throw new Error(`[B5_GUARD] parent_implausible_price: parentId=${parentId} price=${price} context=${context}`);
+  }
+  if (parent.is_open_position !== true) {
+    throw new Error(`[B5_GUARD] parent_closed: parentId=${parentId} context=${context}`);
+  }
+
+  const parentAmount = Number(parent.amount);
+  const { data: priorSellsRows, error: priorSellsErr } = await supabase
+    .from('mock_trades')
+    .select('amount')
+    .eq('original_trade_id', parentId)
+    .eq('trade_type', 'sell')
+    .eq('is_corrupted', false);
+
+  if (priorSellsErr) {
+    throw new Error(`[B5_GUARD] inventory_check_failed: parentId=${parentId} context=${context} error=${priorSellsErr.message}`);
+  }
+
+  const priorSoldQty = (priorSellsRows ?? []).reduce(
+    (acc: number, r: any) => acc + Number(r?.amount ?? 0),
+    0,
+  );
+  const remaining = parentAmount - priorSoldQty;
+
+  if (Number(sellQty) - remaining > 1e-8) {
+    throw new Error(`[B5_GUARD] parent_insufficient_remaining: parentId=${parentId} parentAmount=${parentAmount} priorSold=${priorSoldQty} remaining=${remaining} sellQty=${sellQty} context=${context}`);
+  }
+  // All checks passed.
+}
+
+/**
+ * B5 GUARD: Log a decision_events row for a B5 rejection and return a structured payload.
+ */
+async function logB5Block(
+  supabase: any,
+  intent: any,
+  baseSymbol: string,
+  context: string,
+  parentId: string | null | undefined,
+  sellQty: number,
+  err: any,
+): Promise<void> {
+  try {
+    await supabase.from('decision_events').insert({
+      user_id: intent.userId,
+      strategy_id: intent.strategyId,
+      symbol: baseSymbol,
+      side: 'SELL',
+      source: `coordinator.${context}`,
+      reason: 'b5_guard_blocked',
+      decision_ts: new Date().toISOString(),
+      metadata: {
+        blocked: true,
+        b5_guard: true,
+        context,
+        parent_validity_check: {
+          parentId: parentId ?? null,
+          sellQty,
+          error_message: String(err?.message || err),
+        },
+      },
+    });
+  } catch (logErr) {
+    console.error('[B5_GUARD] failed to log decision_event', logErr);
   }
 }
 
