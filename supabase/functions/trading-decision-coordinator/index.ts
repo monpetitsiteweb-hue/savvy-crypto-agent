@@ -2883,7 +2883,15 @@ serve(async (req) => {
         );
       }
 
-      await assertParentExists(supabaseClient, payload.original_trade_id, 'L2662_manual_sell');
+      try {
+        await assertParentValid(supabaseClient, payload.original_trade_id, sellAmount, 'L2662_manual_sell');
+      } catch (b5err) {
+        await logB5Block(supabaseClient, intent, baseSymbol, 'L2662_manual_sell', payload.original_trade_id, sellAmount, b5err);
+        return new Response(
+          JSON.stringify({ ok: false, error: 'b5_guard_blocked', reason: String((b5err as any)?.message || b5err) }),
+          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
       const { error: insErr } = await supabaseClient.from("mock_trades").insert([payload]);
       if (insErr) {
         console.error("[coordinator] mock sell insert failed", insErr);
