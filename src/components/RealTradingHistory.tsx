@@ -61,12 +61,13 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
   );
 
   const summary: PortfolioSummaryData = useMemo(() => {
+    // Totals bound directly to get_portfolio_metrics RPC (single source of truth).
     const cashEur = metrics?.cash_balance_eur || 0;
-    const openPositionsValueEur = openCalc.totalValue;
-    const totalPortfolioValueEur = cashEur + openPositionsValueEur - gasSpentEur;
-    const unrealizedPnlEur = openCalc.totalValue - openCalc.pricedCostBasis;
+    const openPositionsValueEur = metrics?.current_position_value_eur || 0;
+    const totalPortfolioValueEur = metrics?.total_portfolio_value_eur || 0;
+    const unrealizedPnlEur = metrics?.unrealized_pnl_eur || 0;
     const realizedPnlEur = metrics?.realized_pnl_eur || 0;
-    const totalPnlEur = unrealizedPnlEur + realizedPnlEur - gasSpentEur;
+    const totalPnlEur = metrics?.total_pnl_eur || 0;
     const startingCapital = metrics?.starting_capital_eur || 0;
     const totalPnlPct = startingCapital > 0 ? (totalPnlEur / startingCapital) * 100 : 0;
 
