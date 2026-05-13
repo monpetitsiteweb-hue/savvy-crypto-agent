@@ -166,9 +166,9 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
       realizedPnlEur: metrics.realized_pnl_eur || 0,
       totalPnlEur: metrics.total_pnl_eur || 0,
       totalPnlPct: totalPnlPctLocal,
-      gasSpentEur: rpcTotals.gasSpentEur,
+      gasSpentEur: 0,
     };
-  }, [metrics, rpcTotals.gasSpentEur]);
+  }, [metrics]);
 
   // SINGLE SOURCE OF TRUTH: Past positions use DB snapshot fields only (no frontend calculation)
   const calculateTradePerformance = (trade: Trade): TradePerformance => {
