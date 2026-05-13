@@ -324,14 +324,14 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                 <div className="w-16 h-7 bg-slate-700 animate-pulse rounded"></div>
               ) : (
                 (() => {
-                  const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                  const pnl = formatPnlWithSign(rpcTotals.totalPnlEur);
                   return (
                     <>
                       <div className={`text-xl font-bold ${pnl.colorClass}`}>
                         {pnl.sign}{pnl.value}
                       </div>
                       <div className={`text-xs ${pnl.colorClass}`}>
-                        {formatPercentage(portfolioValuation.totalPnlPct)}
+                        {formatPercentage(rpcTotals.totalPnlPct)}
                       </div>
                     </>
                   );
@@ -346,7 +346,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                 <div className="w-16 h-7 bg-slate-700 animate-pulse rounded"></div>
               ) : (
                 (() => {
-                  const realPnl = formatPnlWithSign(portfolioValuation.realizedPnlEur);
+                  const realPnl = formatPnlWithSign(rpcTotals.realizedPnlEur);
                   return (
                     <>
                       <div className={`text-xl font-bold ${realPnl.colorClass}`}>
@@ -368,7 +368,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                 <div className="w-16 h-7 bg-slate-700 animate-pulse rounded"></div>
               ) : (
                 (() => {
-                  const unrealPnl = formatPnlWithSign(portfolioValuation.unrealizedPnlEur);
+                  const unrealPnl = formatPnlWithSign(rpcTotals.unrealizedPnlEur);
                   return (
                     <>
                       <div className={`text-xl font-bold ${unrealPnl.colorClass}`}>
@@ -589,7 +589,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                 <div className="w-16 h-6 bg-slate-700 animate-pulse rounded mx-auto"></div>
               ) : (
                 (() => {
-                  const pnl = formatPnlWithSign(portfolioValuation.totalPnlEur);
+                  const pnl = formatPnlWithSign(rpcTotals.totalPnlEur);
                   return (
                     <div className={`text-lg font-semibold ${pnl.colorClass}`}>
                       {pnl.sign}{pnl.value}
