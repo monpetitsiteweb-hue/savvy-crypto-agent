@@ -8703,7 +8703,12 @@ async function executeTradeOrder(
         logDualEngineWarning(dualCheck, currentOrigin, intent.userId, intent.strategyId, baseSymbol);
       }
 
-      await assertParentExists(supabaseClient, (mockTrade as any).original_trade_id, 'L8108_pool_path');
+      try {
+        await assertParentValid(supabaseClient, (mockTrade as any).original_trade_id, Number((mockTrade as any).amount), 'L8108_pool_path');
+      } catch (b5err) {
+        await logB5Block(supabaseClient, intent, baseSymbol, 'L8108_pool_path', (mockTrade as any).original_trade_id, Number((mockTrade as any).amount), b5err);
+        return { success: false, error: 'b5_guard_blocked', reason: String((b5err as any)?.message || b5err) };
+      }
       const { data: insertResult, error } = await supabaseClient.from("mock_trades").insert(mockTrade).select("id");
 
       if (error) {
