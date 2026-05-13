@@ -46,9 +46,9 @@ export function useOpenTrades(): UseOpenTradesResult {
       }
 
       // =====================================================================
-      // Fetch BUY trades - unified query for both Test and Live mode
-      // Live mode adds execution_confirmed = true filter
-      // Cast to any to avoid TS2589 deep instantiation error
+      // Authoritative source: mock_trades.is_open_position (maintained by
+      // settle_sell_trade_v2, partial-fill aware). Do NOT derive openness from
+      // set-membership of original_trade_id — that drops BUYs with partial sells.
       // =====================================================================
       const buyQuery = (supabase
         .from('mock_trades')
@@ -56,9 +56,11 @@ export function useOpenTrades(): UseOpenTradesResult {
         .eq('user_id', user.id)
         .eq('trade_type', 'buy')
         .eq('is_test_mode', testMode)
-        .eq('is_corrupted', false);
+        .eq('is_corrupted', false)
+        .eq('is_archived', false)
+        .eq('is_open_position', true);
 
-      // Live mode: only show confirmed real trades
+      // Live mode: only show confirmed on-chain trades
       const finalBuyQuery = testMode
         ? buyQuery
         : buyQuery.eq('execution_confirmed', true);
@@ -67,35 +69,7 @@ export function useOpenTrades(): UseOpenTradesResult {
 
       if (buyError) throw buyError;
 
-      // =====================================================================
-      // Fetch SELL trades to find closed positions
-      // =====================================================================
-      const sellQuery = (supabase
-        .from('mock_trades')
-        .select('original_trade_id') as any)
-        .eq('user_id', user.id)
-        .eq('trade_type', 'sell')
-        .eq('is_test_mode', testMode)
-        .eq('is_corrupted', false)
-        .not('original_trade_id', 'is', null);
-
-      // Live mode: only count confirmed sells
-      const finalSellQuery = testMode
-        ? sellQuery
-        : sellQuery.eq('execution_confirmed', true);
-
-      const { data: sellTrades, error: sellError } = await finalSellQuery;
-
-      if (sellError) throw sellError;
-
-      // Create a set of closed trade IDs
-      const closedTradeIds = new Set(
-        ((sellTrades || []) as { original_trade_id: string }[]).map(s => s.original_trade_id)
-      );
-
-      // Filter to only open trades (BUYs without a matching SELL)
       const open = ((buyTrades || []) as any[])
-        .filter(trade => !closedTradeIds.has(trade.id))
         .map(trade => ({
           id: trade.id,
           cryptocurrency: trade.cryptocurrency,
