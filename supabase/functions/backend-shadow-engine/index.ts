@@ -561,6 +561,14 @@ interface ShadowDecision {
 }
 
 // ============= PHASE S2: POSITION INTERFACE =============
+interface OpenLotRef {
+  id: string;
+  remainingAmount: number;
+  entryPrice: number;
+  entryValue: number;
+  executedAt: string;
+}
+
 interface OpenPosition {
   cryptocurrency: string;
   totalAmount: number;
@@ -568,7 +576,14 @@ interface OpenPosition {
   oldestPurchaseDate: string;
   totalBuyValue: number;
   tradeIds: string[];
+  // Per-lot breakdown (FIFO-resolved remaining amounts) used for per-lot SELL fan-out.
+  openLots: OpenLotRef[];
 }
+
+// Dust threshold matches the existing FIFO epsilon used in fetchOpenPositions.
+// Lots with remainingAmount < DUST_THRESHOLD are auto-closed by the engine
+// (no on-chain action; their value is dwarfed by gas).
+const DUST_THRESHOLD = 1e-7;
 
 // ============= PHASE S4: RUNNER STATE INTERFACE =============
 interface RunnerState {
