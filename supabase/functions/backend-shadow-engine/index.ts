@@ -1278,57 +1278,69 @@ serve(async (req) => {
             
             console.log(`🌑 ${BACKEND_ENGINE_MODE}: EXIT TRIGGERED for ${baseSymbol} - trigger=${exitResult.exitDecision.trigger}, action=${exitResult.trace.final_action} (freshNetQty=${freshNetQty.toFixed(8)})`);
             
-            // Generate unique identifiers
+            // Generate cycle-level identifiers (shared across all per-lot intents in this exit)
             const backendRequestId = crypto.randomUUID();
             const timestamp = Date.now();
-            const idempotencyKey = `exit_${userId}_${strategy.id}_${baseSymbol}_${exitResult.exitDecision.trigger}_${timestamp}`;
-            
-            // Build SELL intent with position debug snapshot for coordinator
-            const sellIntent = {
-              userId,
-              strategyId: strategy.id,
-              symbol: baseSymbol,
-              side: 'SELL' as const,
-              source: 'intelligent' as const,
-              confidence: 0.95,
-              reason: exitResult.exitDecision.trigger,
-              qtySuggested: position.totalAmount,
-              metadata: {
-                mode: strategyIsTestMode ? 'mock' : 'live',
-                engine: 'intelligent',
-                is_test_mode: strategyIsTestMode,
-                context: effectiveShadowMode ? 'BACKEND_SHADOW' : exitResult.exitDecision.context,
-                trigger: exitResult.exitDecision.trigger,
-                pnl_at_decision_pct: parseFloat(pnlPercentage.toFixed(4)),
-                pnlPercentage: pnlPercentage.toFixed(4),
-                entryPrice: position.averagePrice,
-                currentPrice,
-                hoursSincePurchase: hoursSincePurchase.toFixed(2),
-                backend_request_id: backendRequestId,
-                backend_ts: new Date().toISOString(),
-                origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
-                exit_type: 'automatic',
-                exit_trace: exitResult.trace,
-                // ============= POSITION DEBUG SNAPSHOT (for positionNotFound debugging) =============
-                position_snapshot: {
-                  totalAmount: position.totalAmount,
-                  averagePrice: position.averagePrice,
-                  oldestPurchaseDate: position.oldestPurchaseDate,
-                  tradeIds_count: position.tradeIds?.length || 0,
-                  tradeIds_sample: position.tradeIds?.slice(0, 3) || [],
-                },
-                symbol_raw: position.cryptocurrency,
-                symbol_normalized: baseSymbol,
-                exit_trigger: exitResult.exitDecision.trigger,
-                exit_context: exitResult.exitDecision.context,
+
+            // ============= PER-LOT FAN-OUT =============
+            // Every BUY lot is sold independently with its own original_trade_id and own P&L.
+            // SHADOW: emit single aggregated WOULD_SELL log (no execution, no nonce risk).
+            // LIVE: loop lots sequentially. Each call to coordinator awaits the previous one,
+            //       so eth_sendRawTransaction is serialized. Combined with signer.ts using the
+            //       'pending' nonce tag, this prevents nonce collisions (B6).
+            const lotsForFanOut: OpenLotRef[] = (position.openLots || []).slice();
+
+            // Pre-fetch in-flight SELLs for this position's lots (single batched query) to
+            // avoid double-selling a lot whose prior SELL was broadcast/mined but not yet
+            // polled by onchain-receipts (placeholder still execution_source='onchain_pending').
+            let inFlightLotIds = new Set<string>();
+            if (!effectiveShadowMode && lotsForFanOut.length > 0) {
+              try {
+                const { data: inFlightRows } = await supabaseClient
+                  .from('mock_trades')
+                  .select('original_trade_id')
+                  .in('original_trade_id', lotsForFanOut.map(l => l.id))
+                  .eq('trade_type', 'sell')
+                  .eq('execution_source', 'onchain_pending')
+                  .eq('execution_confirmed', false);
+                inFlightLotIds = new Set((inFlightRows || []).map((r: any) => r.original_trade_id).filter(Boolean));
+                if (inFlightLotIds.size > 0) {
+                  console.log(`[PER_LOT_SELL] in_flight pre-check ${baseSymbol}: ${inFlightLotIds.size} lot(s) already pending`);
+                }
+              } catch (preErr) {
+                console.warn(`[PER_LOT_SELL] in-flight pre-check failed for ${baseSymbol}:`, (preErr as Error).message);
+              }
+            }
+
+            const baseMetadata = {
+              mode: strategyIsTestMode ? 'mock' : 'live',
+              engine: 'intelligent',
+              is_test_mode: strategyIsTestMode,
+              context: effectiveShadowMode ? 'BACKEND_SHADOW' : exitResult.exitDecision.context,
+              trigger: exitResult.exitDecision.trigger,
+              pnlPercentage: pnlPercentage.toFixed(4),
+              hoursSincePurchase: hoursSincePurchase.toFixed(2),
+              backend_request_id: backendRequestId,
+              backend_ts: new Date().toISOString(),
+              origin: effectiveShadowMode ? 'BACKEND_SHADOW' : 'BACKEND_LIVE',
+              exit_type: 'automatic',
+              exit_trace: exitResult.trace,
+              symbol_raw: position.cryptocurrency,
+              symbol_normalized: baseSymbol,
+              exit_trigger: exitResult.exitDecision.trigger,
+              exit_context: exitResult.exitDecision.context,
+              position_snapshot: {
+                totalAmount: position.totalAmount,
+                averagePrice: position.averagePrice,
+                oldestPurchaseDate: position.oldestPurchaseDate,
+                tradeIds_count: position.tradeIds?.length || 0,
+                tradeIds_sample: position.tradeIds?.slice(0, 3) || [],
               },
-              ts: new Date().toISOString(),
-              idempotencyKey,
             };
 
             if (effectiveShadowMode) {
-              // SHADOW MODE: Log decision but don't execute
-              console.log(`🌑 SHADOW: Would SELL ${baseSymbol} via ${exitResult.exitDecision.trigger} (pnl=${pnlPercentage.toFixed(2)}%)`);
+              // SHADOW: single aggregated log, no per-lot dispatch
+              console.log(`🌑 SHADOW: Would SELL ${baseSymbol} via ${exitResult.exitDecision.trigger} (pnl=${pnlPercentage.toFixed(2)}%, lots=${lotsForFanOut.length})`);
               allDecisions.push({
                 symbol: baseSymbol,
                 side: 'SELL',
@@ -1338,82 +1350,163 @@ serve(async (req) => {
                 wouldExecute: true,
                 timestamp: new Date().toISOString(),
                 metadata: {
-                  ...sellIntent.metadata,
+                  ...baseMetadata,
+                  entryPrice: position.averagePrice,
+                  currentPrice,
+                  pnl_at_decision_pct: parseFloat(pnlPercentage.toFixed(4)),
                   strategyId: strategy.id,
                   strategyName: strategy.strategy_name,
                   shadow_only: true,
-                  // ============= EXECUTION TRUTH FIELDS (SELL SHADOW) =============
+                  lot_count: lotsForFanOut.length,
                   intent_side: 'SELL',
-                   execution_status: 'SHADOW_ONLY',
-                   execution_reason: null,
-                   snapshot_type: 'EXIT',
-                }
+                  execution_status: 'SHADOW_ONLY',
+                  execution_reason: null,
+                  snapshot_type: 'EXIT',
+                },
               });
             } else {
-              // LIVE MODE: Send SELL intent to coordinator
-              console.log(`🔥 LIVE: Executing SELL for ${baseSymbol} via ${exitResult.exitDecision.trigger}`);
-              
-              const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
-                'trading-decision-coordinator',
-                { body: { intent: sellIntent } }
-              );
+              // LIVE: per-lot sequential fan-out
+              console.log(`🔥 LIVE: Per-lot SELL fan-out for ${baseSymbol} via ${exitResult.exitDecision.trigger} (lots=${lotsForFanOut.length})`);
 
-              if (coordError) {
-                console.error(`🌑 ${BACKEND_ENGINE_MODE}: Coordinator error for ${baseSymbol} SELL:`, coordError);
-                allDecisions.push({
-                  symbol: baseSymbol,
-                  side: 'SELL',
-                  action: 'ERROR',
-                  reason: coordError.message || 'coordinator_error',
-                  confidence: 0.95,
-                  wouldExecute: false,
-                  timestamp: new Date().toISOString(),
-                  metadata: { 
-                    error: coordError, 
-                    trigger: exitResult.exitDecision.trigger, 
-                    exit_trace: exitResult.trace,
-                    // ============= EXECUTION TRUTH FIELDS (SELL ERROR) =============
-                    intent_side: 'SELL',
-                    execution_status: 'BLOCKED',
-                    execution_reason: `error: ${coordError.message || 'coordinator_error'}`,
+              const perLotResults: Array<{ lotId: string; ok: boolean; action?: string; error?: string; tradeId?: string; txHash?: string }> = [];
+
+              for (let i = 0; i < lotsForFanOut.length; i++) {
+                const lot = lotsForFanOut[i];
+
+                // §7c In-flight guard: skip lots already pending
+                if (inFlightLotIds.has(lot.id)) {
+                  console.log(`[PER_LOT_SELL] in_flight_skipped lot=${lot.id}`);
+                  perLotResults.push({ lotId: lot.id, ok: true, action: 'in_flight_skipped' });
+                  continue;
+                }
+
+                // §7a Dust lot: close in-place, no on-chain action
+                if (lot.remainingAmount < DUST_THRESHOLD) {
+                  try {
+                    await supabaseClient
+                      .from('mock_trades')
+                      .update({
+                        is_open_position: false,
+                        settlement_status: 'SETTLED',
+                        is_corrupted: false,
+                        notes: `Auto-closed by engine: dust remaining ${lot.remainingAmount} < ${DUST_THRESHOLD}`,
+                      })
+                      .eq('id', lot.id)
+                      .eq('is_open_position', true);
+                    console.log(`[PER_LOT_SELL] dust_closed lot=${lot.id} remaining=${lot.remainingAmount}`);
+                    perLotResults.push({ lotId: lot.id, ok: true, action: 'dust_closed' });
+                  } catch (dustErr) {
+                    console.warn(`[PER_LOT_SELL] dust_close_failed lot=${lot.id}: ${(dustErr as Error).message}`);
+                    perLotResults.push({ lotId: lot.id, ok: false, error: `dust_close_failed: ${(dustErr as Error).message}` });
                   }
-                });
-              } else {
-                let parsed = coordinatorResponse;
+                  continue;
+                }
+
+                const lotPnlPct = lot.entryPrice > 0
+                  ? ((currentPrice - lot.entryPrice) / lot.entryPrice) * 100
+                  : 0;
+
+                const lotIdempotencyKey = `exit_${userId}_${strategy.id}_${baseSymbol}_${lot.id}_${exitResult.exitDecision.trigger}_${timestamp}`;
+
+                const sellIntent = {
+                  userId,
+                  strategyId: strategy.id,
+                  symbol: baseSymbol,
+                  side: 'SELL' as const,
+                  source: 'intelligent' as const,
+                  confidence: 0.95,
+                  reason: exitResult.exitDecision.trigger,
+                  qtySuggested: lot.remainingAmount,
+                  metadata: {
+                    ...baseMetadata,
+                    // Per-lot identity (KEY: enables 1:1 settle_sell_trade_v2 match)
+                    originalTradeId: lot.id,
+                    lot_entry_price: lot.entryPrice,
+                    lot_entry_value: lot.entryValue,
+                    lot_executed_at: lot.executedAt,
+                    lot_remaining_amount: lot.remainingAmount,
+                    lot_index: i,
+                    lot_count: lotsForFanOut.length,
+                    // Per-lot P&L (NOT pooled)
+                    pnl_at_decision_pct: parseFloat(lotPnlPct.toFixed(4)),
+                    entryPrice: lot.entryPrice,
+                    currentPrice,
+                  },
+                  ts: new Date().toISOString(),
+                  idempotencyKey: lotIdempotencyKey,
+                };
+
+                console.log(`[PER_LOT_SELL] dispatch lot=${lot.id} qty=${lot.remainingAmount} pnl=${lotPnlPct.toFixed(2)}% (${i + 1}/${lotsForFanOut.length})`);
+
+                // Sequential await — lot N+1 only dispatched after lot N's broadcast resolves.
+                // Combined with signer.ts 'pending' nonce tag, prevents nonce collisions (B6).
+                const { data: coordinatorResponse, error: coordError } = await supabaseClient.functions.invoke(
+                  'trading-decision-coordinator',
+                  { body: { intent: sellIntent } }
+                );
+
+                if (coordError) {
+                  console.error(`[PER_LOT_SELL] coord_error lot=${lot.id}:`, coordError.message || coordError);
+                  perLotResults.push({ lotId: lot.id, ok: false, error: coordError.message || 'coordinator_error' });
+                  // §7b continue with next lot — do NOT break
+                  continue;
+                }
+
+                let parsed: any = coordinatorResponse;
                 if (typeof parsed === 'string') {
                   try { parsed = JSON.parse(parsed); } catch { parsed = {}; }
                 }
                 const decision = parsed?.decision || parsed;
                 const action = decision?.action || 'UNKNOWN';
-                
-                // Determine execution status for SELL
-                const sellWasExecuted = action === 'SELL';
-                const sellExecutionStatus: 'EXECUTED' | 'BLOCKED' | 'DEFERRED' = 
-                  sellWasExecuted ? 'EXECUTED' :
-                  action === 'DEFER' ? 'DEFERRED' : 'BLOCKED';
-                const sellExecutionReason = sellWasExecuted ? null : (decision?.reason || exitResult.exitDecision.trigger);
-                
-                allDecisions.push({
-                  symbol: baseSymbol,
-                  side: 'SELL',
+                const lotOk = action === 'SELL';
+                perLotResults.push({
+                  lotId: lot.id,
+                  ok: lotOk,
                   action,
-                  reason: exitResult.exitDecision.trigger,
-                  confidence: 0.95,
-                  wouldExecute: sellWasExecuted,
-                  timestamp: new Date().toISOString(),
-                  metadata: {
-                    ...sellIntent.metadata,
-                    strategyId: strategy.id,
-                    strategyName: strategy.strategy_name,
-                    coordinatorResponse: decision,
-                    // ============= EXECUTION TRUTH FIELDS (SELL LIVE) =============
-                    intent_side: 'SELL',
-                     execution_status: sellExecutionStatus,
-                     execution_reason: sellExecutionReason,
-                     snapshot_type: 'EXIT',
-                  }
+                  error: lotOk ? undefined : (decision?.reason || 'not_executed'),
+                  tradeId: decision?.trade_id,
+                  txHash: decision?.tx_hash,
                 });
+                if (!lotOk) {
+                  console.warn(`[PER_LOT_SELL] not_executed lot=${lot.id} action=${action} reason=${decision?.reason}`);
+                }
               }
+
+              // Aggregated decision summary for this exit cycle
+              const okCount = perLotResults.filter(r => r.ok && r.action !== 'in_flight_skipped' && r.action !== 'dust_closed').length;
+              const failCount = perLotResults.filter(r => !r.ok).length;
+              const dispatchedCount = perLotResults.length;
+              const summaryAction = failCount === 0 ? 'PER_LOT_SELL_OK'
+                : okCount === 0 ? 'PER_LOT_SELL_ALL_FAILED'
+                : 'PER_LOT_SELL_PARTIAL';
+              const summaryStatus: 'EXECUTED' | 'BLOCKED' =
+                okCount > 0 ? 'EXECUTED' : 'BLOCKED';
+
+              allDecisions.push({
+                symbol: baseSymbol,
+                side: 'SELL',
+                action: summaryAction,
+                reason: exitResult.exitDecision.trigger,
+                confidence: 0.95,
+                wouldExecute: okCount > 0,
+                timestamp: new Date().toISOString(),
+                metadata: {
+                  ...baseMetadata,
+                  entryPrice: position.averagePrice,
+                  currentPrice,
+                  pnl_at_decision_pct: parseFloat(pnlPercentage.toFixed(4)),
+                  strategyId: strategy.id,
+                  strategyName: strategy.strategy_name,
+                  per_lot_results: perLotResults,
+                  per_lot_dispatched: dispatchedCount,
+                  per_lot_ok: okCount,
+                  per_lot_failed: failCount,
+                  intent_side: 'SELL',
+                  execution_status: summaryStatus,
+                  execution_reason: failCount > 0 ? `partial_or_failed: ${failCount}/${dispatchedCount}` : null,
+                  snapshot_type: 'EXIT',
+                },
+              });
             }
           } else {
             // ============= NO EXIT: Log HOLD with full trace =============
