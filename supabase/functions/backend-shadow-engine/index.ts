@@ -2287,6 +2287,7 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
         let fifoValue = 0;
         let fifoAmount = 0;
         const tradeIds: string[] = [];
+        const openLots: OpenLotRef[] = [];
         let oldestDate = '';
         
         // buyTrades are already in ascending order (oldest first)
@@ -2300,6 +2301,13 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
             fifoValue += remainingFromThisBuy * buy.price;
             fifoAmount += remainingFromThisBuy;
             tradeIds.push(buy.id);
+            openLots.push({
+              id: buy.id,
+              remainingAmount: remainingFromThisBuy,
+              entryPrice: buy.price,
+              entryValue: remainingFromThisBuy * buy.price,
+              executedAt: buy.executedAt,
+            });
             if (!oldestDate || buy.executedAt < oldestDate) {
               oldestDate = buy.executedAt;
             }
@@ -2308,7 +2316,7 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
         
         const averagePrice = fifoAmount > 0 ? fifoValue / fifoAmount : 0;
         
-        console.log(`[fetchOpenPositions] FIFO avg for ${symbol}: avgPrice=${averagePrice.toFixed(6)}, fifoAmount=${fifoAmount.toFixed(8)}, netAmount=${netAmount.toFixed(8)}, totalBuys=${pos.buyTrades.length}`);
+        console.log(`[fetchOpenPositions] FIFO avg for ${symbol}: avgPrice=${averagePrice.toFixed(6)}, fifoAmount=${fifoAmount.toFixed(8)}, netAmount=${netAmount.toFixed(8)}, totalBuys=${pos.buyTrades.length}, openLots=${openLots.length}`);
         
         openPositions.push({
           cryptocurrency: symbol,
@@ -2317,6 +2325,7 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
           oldestPurchaseDate: oldestDate,
           totalBuyValue: fifoValue,
           tradeIds,
+          openLots,
         });
       }
     }
