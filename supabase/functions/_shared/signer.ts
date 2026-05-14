@@ -210,7 +210,10 @@ class LocalSigner implements Signer {
         jsonrpc: '2.0',
         id: 1,
         method: 'eth_getTransactionCount',
-        params: [this.account.address, 'latest'],
+        // 'pending' includes mempool txs → next usable nonce.
+        // Required for sequential per-lot SELL fan-out from backend-shadow-engine
+        // (lot N+1 must not collide with lot N still in mempool).
+        params: [this.account.address, 'pending'],
       }),
     });
     const nonceResult = await nonceResponse.json();
