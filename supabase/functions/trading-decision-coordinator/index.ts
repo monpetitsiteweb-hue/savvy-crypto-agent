@@ -3893,6 +3893,12 @@ serve(async (req) => {
         // STEP 3: Insert placeholder mock_trades
         const mockTradeId = crypto.randomUUID();
         const isBuySide = intent.side.toLowerCase() === "buy";
+        // Per-lot fan-out: when engine emits N independent SELLs (one per BUY lot),
+        // metadata.originalTradeId must propagate to mock_trades.original_trade_id
+        // so that settle_sell_trade_v2 can match the SELL 1:1 to its parent BUY lot.
+        const originalTradeId = !isBuySide && typeof intent.metadata?.originalTradeId === 'string'
+          ? intent.metadata.originalTradeId
+          : null;
         const placeholderRecord = {
           id: mockTradeId,
           user_id: intent.userId,
@@ -3910,6 +3916,7 @@ serve(async (req) => {
           notes: 'PENDING_ONCHAIN: Automated intelligent trade awaiting receipt confirmation',
           idempotency_key: `pending_${mockTradeId}`,
           ...(isBuySide ? { is_open_position: true } : {}),
+          ...(originalTradeId ? { original_trade_id: originalTradeId } : {}),
         };
 
         const { error: placeholderError } = await supabaseClient
