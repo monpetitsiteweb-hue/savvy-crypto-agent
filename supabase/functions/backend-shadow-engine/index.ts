@@ -2390,7 +2390,7 @@ async function fetchOpenPositions(supabaseClient: any, userId: string, strategyI
           const remainingFromThisBuy = buy.amount - consumedFromThisBuy;
           remainingSold = Math.max(0, remainingSold - buy.amount);
           
-          if (remainingFromThisBuy > 0.00000001) {
+          if (remainingFromThisBuy > DUST_THRESHOLD) {
             fifoValue += remainingFromThisBuy * buy.price;
             fifoAmount += remainingFromThisBuy;
             tradeIds.push(buy.id);
