@@ -1099,6 +1099,77 @@ export type Database = {
         }
         Relationships: []
       }
+      dust_pool: {
+        Row: {
+          created_at: string
+          cryptocurrency: string
+          dust_amount: number
+          dust_value_eur_at_recognition: number
+          id: string
+          notes: string | null
+          parent_buy_id: string
+          parent_tx_hash: string | null
+          recognized_at: string
+          strategy_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          cryptocurrency: string
+          dust_amount: number
+          dust_value_eur_at_recognition: number
+          id?: string
+          notes?: string | null
+          parent_buy_id: string
+          parent_tx_hash?: string | null
+          recognized_at?: string
+          strategy_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          cryptocurrency?: string
+          dust_amount?: number
+          dust_value_eur_at_recognition?: number
+          id?: string
+          notes?: string | null
+          parent_buy_id?: string
+          parent_tx_hash?: string | null
+          recognized_at?: string
+          strategy_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dust_pool_parent_fk"
+            columns: ["parent_buy_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dust_pool_parent_fk"
+            columns: ["parent_buy_id"]
+            isOneToOne: false
+            referencedRelation: "mock_trades_active_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dust_pool_parent_fk"
+            columns: ["parent_buy_id"]
+            isOneToOne: false
+            referencedRelation: "past_positions_view"
+            referencedColumns: ["sell_trade_id"]
+          },
+          {
+            foreignKeyName: "dust_pool_parent_fk"
+            columns: ["parent_buy_id"]
+            isOneToOne: false
+            referencedRelation: "strategy_open_positions"
+            referencedColumns: ["lot_id"]
+          },
+        ]
+      }
       execution_circuit_breakers: {
         Row: {
           activated_at: string | null
@@ -4980,6 +5051,18 @@ export type Database = {
           total_count: number | null
           window_end: string | null
           window_start: string | null
+        }
+        Relationships: []
+      }
+      v_dust_pool_aggregated: {
+        Row: {
+          cryptocurrency: string | null
+          dust_entries_count: number | null
+          first_recognized_at: string | null
+          last_recognized_at: string | null
+          total_dust_amount: number | null
+          total_dust_value_eur: number | null
+          user_id: string | null
         }
         Relationships: []
       }
