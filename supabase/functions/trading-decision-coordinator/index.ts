@@ -3899,6 +3899,52 @@ serve(async (req) => {
         const originalTradeId = !isBuySide && typeof intent.metadata?.originalTradeId === 'string'
           ? intent.metadata.originalTradeId
           : null;
+
+        // ============= B16 STRICT GUARD: SELL must always have a parent BUY =============
+        // Enforces the new settle_sell_trade_v2 contract: every SELL intent MUST carry
+        // metadata.originalTradeId pointing to a specific BUY lot. No FIFO global fallback.
+        if (!isBuySide && !originalTradeId) {
+          console.error('❌ COORDINATOR: SELL intent rejected — missing originalTradeId', {
+            userId: intent.userId,
+            strategyId: intent.strategyId,
+            symbol: baseSymbol,
+            source: intent.source,
+            reason: intent.reason,
+          });
+          try {
+            await supabaseClient.from('decision_events').insert({
+              user_id: intent.userId,
+              strategy_id: intent.strategyId,
+              symbol: baseSymbol,
+              side: 'SELL',
+              source: intent.source ?? 'unknown',
+              reason: 'sell_without_parent_blocked',
+              metadata: {
+                context: 'B16_strict_guard_coordinator',
+                intent_metadata: intent.metadata ?? null,
+                request_id: requestId,
+              }
+            });
+          } catch (logErr) {
+            console.error('❌ COORDINATOR: Failed to log B16 block to decision_events', logErr);
+          }
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: 'sell_without_parent_blocked',
+              decision: {
+                action: 'REJECTED',
+                reason: 'sell_intent_missing_original_trade_id',
+                request_id: requestId,
+                message: 'SELL intent must carry metadata.originalTradeId. B16 contract enforced.',
+              },
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        // ============= END B16 STRICT GUARD =============
+
         const placeholderRecord = {
           id: mockTradeId,
           user_id: intent.userId,
