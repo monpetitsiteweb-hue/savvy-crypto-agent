@@ -3890,6 +3890,77 @@ serve(async (req) => {
         lockAcquired = true;
         console.log(`🔒 COORDINATOR: Lock acquired: ${lockKey}`);
 
+        // ████████████████████████████████████████████████████████████████████
+        // █ C4 STRICT GUARD: BASE-EXECUTABLE SYMBOL WHITELIST (HARDCODED)    █
+        // ████████████████████████████████████████████████████████████████████
+        // █                                                                  █
+        // █  ⚠️ READ BEFORE EDITING ⚠️                                       █
+        // █                                                                  █
+        // █  Only symbols in this list can produce on-chain trades on Base   █
+        // █  (chainId 8453) via the 0x aggregator. Any BUY intent for a      █
+        // █  symbol NOT in this list is REJECTED here, before placeholder.   █
+        // █                                                                  █
+        // █  TO ADD A NEW SYMBOL (e.g. when XRP support ships):              █
+        // █    1. Verify on-chain execution path works (manual swap test)    █
+        // █    2. Add the symbol to BASE_EXECUTABLE_SYMBOLS below            █
+        // █    3. Update PROJECT_LOG.md section "C4 — Hardcoded whitelist"   █
+        // █    4. Update UI Coins & Amounts note                             █
+        // █                                                                  █
+        // █  Empirical baseline (2026-05-15): only ETH has produced          █
+        // █  successful on-chain swaps. BTC/SOL/XRP/AVAX/ADA/LINK/LTC all    █
+        // █  failed with "Invalid token symbol or address for chainId 8453". █
+        // █                                                                  █
+        // █  See PROJECT_LOG.md → "C4 — Hardcoded executable symbol list"    █
+        // ████████████████████████████████████████████████████████████████████
+        const BASE_EXECUTABLE_SYMBOLS: ReadonlySet<string> = new Set(['ETH']);
+
+        if (intent.side.toLowerCase() === 'buy' && !BASE_EXECUTABLE_SYMBOLS.has(baseSymbol)) {
+          console.error('❌ COORDINATOR: BUY intent rejected — symbol not executable on Base', {
+            userId: intent.userId,
+            strategyId: intent.strategyId,
+            symbol: baseSymbol,
+            allowed: Array.from(BASE_EXECUTABLE_SYMBOLS),
+          });
+
+          try {
+            await supabaseClient.from('decision_events').insert({
+              user_id: intent.userId,
+              strategy_id: intent.strategyId,
+              symbol: baseSymbol,
+              side: 'BUY',
+              source: intent.source ?? 'unknown',
+              reason: 'blocked_non_base_executable_symbol',
+              metadata: {
+                context: 'C4_strict_guard_coordinator',
+                allowed_symbols: Array.from(BASE_EXECUTABLE_SYMBOLS),
+                request_id: requestId,
+              }
+            });
+          } catch (logErr) {
+            console.error('❌ COORDINATOR: Failed to log C4 block to decision_events', logErr);
+          }
+
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              success: false,
+              error: 'blocked_non_base_executable_symbol',
+              decision: {
+                action: 'REJECTED',
+                reason: 'symbol_not_executable_on_base_chain_8453',
+                request_id: requestId,
+                message: `Symbol ${baseSymbol} is not executable on Base chain. Allowed: ${Array.from(BASE_EXECUTABLE_SYMBOLS).join(', ')}.`,
+                allowed_symbols: Array.from(BASE_EXECUTABLE_SYMBOLS),
+              },
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        // ████████████████████████████████████████████████████████████████████
+        // █ END C4 STRICT GUARD                                              █
+        // ████████████████████████████████████████████████████████████████████
+
         // STEP 3: Insert placeholder mock_trades
         const mockTradeId = crypto.randomUUID();
         const isBuySide = intent.side.toLowerCase() === "buy";
