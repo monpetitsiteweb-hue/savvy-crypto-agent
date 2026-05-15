@@ -2346,6 +2346,9 @@ export type Database = {
           original_purchase_value: number | null
           original_trade_id: string | null
           pnl_at_decision_pct: number | null
+          position_status:
+            | Database["public"]["Enums"]["position_status_enum"]
+            | null
           price: number
           price_impact_bps: number | null
           price_quoted: number | null
@@ -2406,6 +2409,9 @@ export type Database = {
           original_purchase_value?: number | null
           original_trade_id?: string | null
           pnl_at_decision_pct?: number | null
+          position_status?:
+            | Database["public"]["Enums"]["position_status_enum"]
+            | null
           price: number
           price_impact_bps?: number | null
           price_quoted?: number | null
@@ -2466,6 +2472,9 @@ export type Database = {
           original_purchase_value?: number | null
           original_trade_id?: string | null
           pnl_at_decision_pct?: number | null
+          position_status?:
+            | Database["public"]["Enums"]["position_status_enum"]
+            | null
           price?: number
           price_impact_bps?: number | null
           price_quoted?: number | null
@@ -5587,6 +5596,12 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      position_status_enum:
+        | "PENDING"
+        | "OPEN"
+        | "PARTIALLY_CLOSED"
+        | "CLOSED"
+        | "STUCK"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -5715,6 +5730,13 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      position_status_enum: [
+        "PENDING",
+        "OPEN",
+        "PARTIALLY_CLOSED",
+        "CLOSED",
+        "STUCK",
+      ],
     },
   },
 } as const
