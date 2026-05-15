@@ -94,6 +94,36 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
 
   return (
     <div className="space-y-6">
+      <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-100 [&>svg]:text-amber-600">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertTitle className="font-semibold">
+          ⚠️ Symboles exécutables sur Base — liste hardcodée
+        </AlertTitle>
+        <AlertDescription className="space-y-2 mt-2 text-sm">
+          <p>
+            Au 2026-05-15, seul <strong>ETH</strong> est réellement exécutable on-chain sur Base
+            (chainId 8453) via l'agrégateur 0x. Les autres symboles (BTC, XRP, SOL, ADA, AVAX,
+            LINK, LTC, etc.) peuvent être évalués et signalés par le moteur mais leurs BUY
+            seront refusés par le coordinator avec <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-xs">blocked_non_base_executable_symbol</code>.
+          </p>
+          <div>
+            <p className="font-medium">Pour ajouter un nouveau symbole :</p>
+            <ol className="list-decimal list-inside space-y-0.5 mt-1">
+              <li>Vérifier que le token est swappable sur Base via 0x</li>
+              <li>
+                Modifier la whitelist <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-xs">BASE_EXECUTABLE_SYMBOLS</code> dans{' '}
+                <code className="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-xs">supabase/functions/trading-decision-coordinator/index.ts</code> (~L3915)
+              </li>
+              <li>Mettre à jour PROJECT_LOG.md section 10.1</li>
+              <li>Mettre à jour cette note UI</li>
+            </ol>
+          </div>
+          <p className="text-xs italic">
+            Voir PROJECT_LOG.md → section 10.1 "C4 — Hardcoded executable symbol list" pour le détail.
+          </p>
+        </AlertDescription>
+      </Alert>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
