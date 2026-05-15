@@ -5271,6 +5271,45 @@ async function executeTradeDirectly(
       // =============================================================================
       console.log("============ STEP 3: PER-LOT SELL EXECUTION ============");
 
+      // ============= B16 STRICT GUARD: SELL must always have originalTradeId =============
+      // Enforces the new settle_sell_trade_v2 contract: every SELL intent MUST carry
+      // metadata.originalTradeId. No FIFO global fallback in executeTradeDirectly.
+      const _b16OriginalTradeId = typeof intent.metadata?.originalTradeId === 'string'
+        ? intent.metadata.originalTradeId
+        : null;
+      if (!_b16OriginalTradeId) {
+        console.error('❌ DIRECT: SELL intent rejected — missing originalTradeId in executeTradeDirectly', {
+          userId: intent.userId,
+          strategyId: intent.strategyId,
+          symbol: baseSymbol,
+          source: intent.source,
+          reason: intent.reason,
+        });
+        try {
+          await supabaseClient.from('decision_events').insert({
+            user_id: intent.userId,
+            strategy_id: intent.strategyId,
+            symbol: baseSymbol,
+            side: 'SELL',
+            source: intent.source ?? 'coordinator.executeTradeDirectly',
+            reason: 'sell_without_parent_blocked_direct',
+            metadata: {
+              context: 'B16_strict_guard_executeTradeDirectly',
+              intent_metadata: intent.metadata ?? null,
+            }
+          });
+        } catch (logErr) {
+          console.error('❌ DIRECT: Failed to log B16 block to decision_events', logErr);
+        }
+        return {
+          success: false,
+          error: 'sell_without_parent_blocked_direct',
+          reason: 'sell_intent_missing_original_trade_id',
+          details: 'SELL intent must carry metadata.originalTradeId. B16 contract enforced.',
+        };
+      }
+      // ============= END B16 STRICT GUARD =============
+
       // ============= B2 GUARD: pre-emission inventory check (UD=OFF per-lot direct) =============
       const _b2RequestedQty = intent.qtySuggested ?? 0;
       if (_b2RequestedQty > 0) {
