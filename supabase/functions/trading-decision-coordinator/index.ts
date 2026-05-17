@@ -6502,6 +6502,7 @@ async function detectConflicts(
     // portfolio_capital (cash + current position value, mark-to-market).
     // RPC failure or non-positive value => block BUY (do not fall back).
     let walletValueEUR: number;
+    let cashBalanceEur: number = NaN;
     try {
       const { data: portfolioMetrics, error: pmError } = await supabaseClient
         .rpc('get_portfolio_metrics', {
@@ -6523,10 +6524,38 @@ async function detectConflicts(
       }
 
       walletValueEUR = totalValue;
+      cashBalanceEur = parseFloat(portfolioMetrics?.cash_balance_eur ?? 'NaN');
     } catch (e: any) {
       console.log(`🚫 COORDINATOR: BUY blocked - get_portfolio_metrics threw: ${e?.message}`);
       guardReport.missingConfig = "walletValueEUR:exception";
       return { hasConflict: true, reason: "blocked_missing_config:walletValueEUR:exception", guardReport };
+    }
+
+    // B4 TEST capital cap (symmetric to onchain-sign-and-send B4 REAL guard).
+    // TEST mode is fail-CLOSED here (no downstream defense like REAL has).
+    // Only applies when canonicalIsTestMode === true (REAL path has its own B4 in onchain-sign-and-send).
+    if (strategyConfig?.canonicalIsTestMode === true) {
+      const eurAmount = Number(intent.metadata?.eurAmount);
+      if (!Number.isFinite(cashBalanceEur)) {
+        console.log(`🚫 COORDINATOR: BUY blocked - cash_balance_eur not finite (got: ${cashBalanceEur})`);
+        guardReport.missingConfig = "b4TestCap:cashBalanceEur:non_finite";
+        return { hasConflict: true, reason: "blocked_missing_config:b4TestCap:cashBalanceEur:non_finite", guardReport };
+      }
+      if (cashBalanceEur < 0) {
+        console.log(`🚫 COORDINATOR: BUY blocked - cash_balance_eur negative (got: ${cashBalanceEur})`);
+        guardReport.missingConfig = "b4TestCap:cashBalanceEur:negative";
+        return { hasConflict: true, reason: "blocked_missing_config:b4TestCap:cashBalanceEur:negative", guardReport };
+      }
+      if (!Number.isFinite(eurAmount) || eurAmount <= 0) {
+        console.log(`🚫 COORDINATOR: BUY blocked - intent.metadata.eurAmount invalid (got: ${intent.metadata?.eurAmount})`);
+        guardReport.missingConfig = "b4TestCap:eurAmount:invalid";
+        return { hasConflict: true, reason: "blocked_missing_config:b4TestCap:eurAmount:invalid", guardReport };
+      }
+      if (eurAmount > cashBalanceEur) {
+        console.log(`🚫 COORDINATOR: BUY blocked - b4 TEST capital cap exceeded (eurAmount=€${eurAmount} > cash_balance_eur=€${cashBalanceEur})`);
+        guardReport.b4TestCap = { eurAmount, cashBalanceEur, exceededBy: eurAmount - cashBalanceEur };
+        return { hasConflict: true, reason: "blocked_user_capital_exceeded_test", guardReport };
+      }
     }
 
     // FAIL-CLOSED: maxWalletExposure required (at least one of two sources)
