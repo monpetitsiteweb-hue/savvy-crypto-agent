@@ -93,7 +93,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       }
 
       // Fetch sell trades for win/loss
-      const { data: sellTrades, error } = await supabase
+      const { data: sellTrades, error } = await ((supabase as any)
         .from('mock_trades')
         .select('id, realized_pnl')
         .eq('user_id', user.id)
@@ -102,7 +102,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
         .eq('is_corrupted', false)
         .eq('is_archived', false)
         .eq('execution_confirmed', true)
-        .eq('settlement_status', 'SETTLED');
+        .eq('settlement_status', 'SETTLED'));
 
       if (error) throw error;
 
