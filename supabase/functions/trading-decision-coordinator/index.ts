@@ -6510,66 +6510,58 @@ async function detectConflicts(
 
     // Get ALL trades for this user/strategy (both buys AND sells) to calculate NET exposure
     const canonicalIsTestMode = strategyConfig?.canonicalIsTestMode ?? true;
-    const { data: allTrades, error: tradesQueryError } = await supabaseClient
-      .from("mock_trades")
-      .select("cryptocurrency, amount, price, trade_type")
-      .eq("user_id", intent.userId)
-      .eq("strategy_id", intent.strategyId)
-      .eq("is_test_mode", canonicalIsTestMode)
-      .in("trade_type", ["buy", "sell"])
-      .order("executed_at", { ascending: false });
+    // B17-followup: authoritative per-lot inventory (replaces pooled FIFO over all trades).
+    // Filters corrupted/archived/non-confirmed and unsettled SELLs inside the RPC.
+    let openLots: Awaited<ReturnType<typeof fetchOpenLotsAuthoritative>> = [];
+    let tradesQueryError: any = null;
+    try {
+      openLots = await fetchOpenLotsAuthoritative(supabaseClient, {
+        userId: intent.userId,
+        strategyId: intent.strategyId,
+        isTestMode: canonicalIsTestMode,
+        symbol: null,
+      });
+    } catch (e) {
+      tradesQueryError = e;
+    }
 
     // === TEMP INSTRUMENTATION: Query status ===
-    console.log(`[EXPOSURE_DIAG] tradesQueryStatus: ${tradesQueryError ? "ERROR" : "OK"}, tradesRowCount: ${allTrades?.length ?? "null"}`);
+    console.log(`[EXPOSURE_DIAG] tradesQueryStatus: ${tradesQueryError ? "ERROR" : "OK"}, tradesRowCount: ${openLots?.length ?? "null"}`);
     if (tradesQueryError) {
-      console.log(`[EXPOSURE_DIAG] tradesQueryError:`, JSON.stringify(tradesQueryError));
+      console.log(`[EXPOSURE_DIAG] tradesQueryError:`, JSON.stringify({ message: tradesQueryError.message }));
     }
-    if (allTrades?.length === 1000) {
-      console.log(`[EXPOSURE_DIAG] ⚠️ possibleTruncation: true — query returned exactly 1000 rows`);
-    }
-    if (allTrades && allTrades.length > 0) {
-      console.log(`[EXPOSURE_DIAG] sampleFirst5Trades:`, JSON.stringify(allTrades.slice(0, 5)));
-      console.log(`[EXPOSURE_DIAG] sampleLast5Trades:`, JSON.stringify(allTrades.slice(-5)));
+    if (openLots && openLots.length > 0) {
+      console.log(`[EXPOSURE_DIAG] sampleFirst5Trades:`, JSON.stringify(openLots.slice(0, 5)));
+      console.log(`[EXPOSURE_DIAG] sampleLast5Trades:`, JSON.stringify(openLots.slice(-5)));
     }
 
-    // Calculate NET exposure (buys - sells) per symbol
-    // Track net QUANTITY per symbol, then multiply by current price for exposure
+    // Build qtyBySymbol from authoritative open lots (one entry per symbol).
+    // netQty = Σ remaining_amount; exposure EUR = Σ remaining_amount × entry_price
+    // (authoritative cost basis, replaces weighted-avg over historical BUYs).
     const qtyBySymbol: Record<string, { netQty: number; avgPrice: number; buyQty: number }> = {};
-
-    for (const trade of allTrades || []) {
-      const sym = trade.cryptocurrency.replace("-EUR", "");
-      const qty = parseFloat(trade.amount);
-      const price = parseFloat(trade.price);
-
-      if (!qtyBySymbol[sym]) {
-        qtyBySymbol[sym] = { netQty: 0, avgPrice: 0, buyQty: 0 };
-      }
-
-      if (trade.trade_type === "buy") {
-        // Weighted average price for buys
-        const prevTotal = qtyBySymbol[sym].buyQty * qtyBySymbol[sym].avgPrice;
-        qtyBySymbol[sym].buyQty += qty;
-        qtyBySymbol[sym].avgPrice =
-          qtyBySymbol[sym].buyQty > 0 ? (prevTotal + qty * price) / qtyBySymbol[sym].buyQty : price;
-        qtyBySymbol[sym].netQty += qty;
-      } else {
-        // Subtract sells from net quantity
-        qtyBySymbol[sym].netQty -= qty;
-      }
+    for (const lot of openLots) {
+      const sym = lot.symbol.replace("-EUR", "");
+      if (!qtyBySymbol[sym]) qtyBySymbol[sym] = { netQty: 0, avgPrice: 0, buyQty: 0 };
+      qtyBySymbol[sym].netQty  += lot.remaining_amount;
+      qtyBySymbol[sym].buyQty  += lot.remaining_amount;
+      // Running cost-basis weighted average over remaining qty
+      const prevTotal = (qtyBySymbol[sym].avgPrice * (qtyBySymbol[sym].buyQty - lot.remaining_amount));
+      qtyBySymbol[sym].avgPrice = qtyBySymbol[sym].buyQty > 0
+        ? (prevTotal + lot.remaining_amount * lot.entry_price) / qtyBySymbol[sym].buyQty
+        : lot.entry_price;
     }
 
     // Calculate exposure in EUR based on NET quantities
     const positionsBySymbol: Record<string, number> = {};
     let totalExposureEUR = 0;
-
     for (const [sym, data] of Object.entries(qtyBySymbol)) {
-      // Only count positive net positions
       if (data.netQty > 0) {
         const exposureEUR = data.netQty * data.avgPrice;
         positionsBySymbol[sym] = exposureEUR;
         totalExposureEUR += exposureEUR;
       }
-    }
+    }</replace>
+</invoke>
 
     console.log(
       `[EXPOSURE] NET positions:`,
