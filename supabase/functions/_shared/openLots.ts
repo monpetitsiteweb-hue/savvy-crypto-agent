@@ -3,8 +3,7 @@
 // B17 authoritative open-lot inventory helper.
 // Wraps the Postgres RPC `get_open_lots_authoritative` and returns a typed
 // list of open lots. Single source of truth for "what is open" across all
-// consumers (engine fetchOpenPositions, coordinator G1/G7/G4/G6, future
-// frontend hook useOpenLots via a thin RPC wrapper).
+// consumers (engine fetchOpenPositions, coordinator G1/G7/G4/G6).
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
