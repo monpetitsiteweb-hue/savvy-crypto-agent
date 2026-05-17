@@ -85,7 +85,7 @@ export const useRiskManagement = () => {
 
       // Check if user has preferences stored in profile metadata
       const storedPrefs = data?.username ? JSON.parse(data.username) : null;
-      
+
       if (storedPrefs && storedPrefs.riskPreferences) {
         setPreferences({ ...defaultPreferences, ...storedPrefs.riskPreferences });
       } else {
@@ -103,7 +103,7 @@ export const useRiskManagement = () => {
     try {
       // Store preferences in profile username field (as JSON)
       const profileData = { riskPreferences: newPreferences };
-      
+
       const { error } = await supabase
         .from('profiles')
         .upsert({
@@ -115,7 +115,7 @@ export const useRiskManagement = () => {
       if (error) throw error;
 
       setPreferences(newPreferences);
-      
+
       toast({
         title: "Preferences Saved",
         description: "Your risk management preferences have been updated",
@@ -135,14 +135,14 @@ export const useRiskManagement = () => {
 
     try {
       const today = new Date().toDateString();
-      
+
       // Reset stats if it's a new day
       if (dailyStats.lastReset !== today) {
         setDailyStats({ trades: 0, pnl: 0, lastReset: today });
         return;
       }
 
-      // Get today's trades
+      // Get today's trades (feeds dailyStats consumed by RiskManagementPanel)
       const { data: todayTrades, error } = await supabase
         .from('mock_trades')
         .select('*')
@@ -158,116 +158,6 @@ export const useRiskManagement = () => {
     } catch (error) {
       console.error('Error loading daily stats:', error);
     }
-  };
-
-  const assessTradeRisk = async (
-    tradeDetails: {
-      action: 'buy' | 'sell';
-      cryptocurrency: string;
-      amount: number;
-      price: number;
-      strategyId?: string;
-    }
-  ): Promise<TradeRiskAssessment> => {
-    if (!preferences) {
-      throw new Error('User preferences not loaded');
-    }
-
-    const blockingReasons: string[] = [];
-    let canExecute = true;
-
-    // Check daily limits
-    if (dailyStats.trades >= preferences.riskLimits.maxTradesPerDay) {
-      blockingReasons.push(`Daily trade limit reached (${preferences.riskLimits.maxTradesPerDay})`);
-      canExecute = false;
-    }
-
-    if (Math.abs(dailyStats.pnl) >= preferences.riskLimits.maxDailyLoss && dailyStats.pnl < 0) {
-      blockingReasons.push(`Daily loss limit reached (€${preferences.riskLimits.maxDailyLoss})`);
-      canExecute = false;
-    }
-
-    // Check position size
-    const tradeValue = tradeDetails.amount * tradeDetails.price;
-    if (tradeValue > preferences.maxTradeSize) {
-      blockingReasons.push(`Trade size exceeds limit (€${preferences.maxTradeSize})`);
-      canExecute = false;
-    }
-
-    // Calculate position sizing based on risk
-    const portfolioValue = await getPortfolioValue();
-    const maxPositionValue = portfolioValue * (preferences.riskLimits.maxPositionSize / 100);
-    
-    let adjustedAmount = tradeDetails.amount;
-    if (tradeValue > maxPositionValue) {
-      adjustedAmount = maxPositionValue / tradeDetails.price;
-    }
-
-    // Calculate stop loss and take profit
-    const stopLossPrice = tradeDetails.action === 'buy' 
-      ? tradeDetails.price * (1 - preferences.riskLimits.stopLossPercentage / 100)
-      : tradeDetails.price * (1 + preferences.riskLimits.stopLossPercentage / 100);
-
-    const takeProfitPrice = preferences.riskLimits.takeProfitPercentage
-      ? tradeDetails.action === 'buy'
-        ? tradeDetails.price * (1 + preferences.riskLimits.takeProfitPercentage / 100)
-        : tradeDetails.price * (1 - preferences.riskLimits.takeProfitPercentage / 100)
-      : undefined;
-
-    const maxLoss = adjustedAmount * tradeDetails.price * (preferences.riskLimits.stopLossPercentage / 100);
-
-    // Calculate risk level
-    const riskFactors = [
-      tradeValue / portfolioValue > 0.1 ? 1 : 0, // Large position
-      preferences.riskLevel === 'aggressive' ? 1 : 0, // Aggressive mode
-      dailyStats.trades > 5 ? 1 : 0, // High frequency
-      Math.abs(dailyStats.pnl) > 200 ? 1 : 0 // Significant P&L
-    ];
-
-    const riskScore = riskFactors.reduce((sum, factor) => sum + factor, 0);
-    const riskLevel = riskScore <= 1 ? 'low' : riskScore <= 2 ? 'medium' : 'high';
-
-    // Generate recommendation
-    let recommendation = '';
-    if (!canExecute) {
-      recommendation = `Trade blocked: ${blockingReasons.join(', ')}`;
-    } else if (riskLevel === 'high') {
-      recommendation = `High-risk trade - consider reducing position size. Max loss: €${maxLoss.toFixed(2)}`;
-    } else if (riskLevel === 'medium') {
-      recommendation = `Moderate-risk trade with €${maxLoss.toFixed(2)} max loss. Stop at €${stopLossPrice.toFixed(2)}`;
-    } else {
-      recommendation = `Low-risk trade opportunity. Stop loss at €${stopLossPrice.toFixed(2)}`;
-    }
-
-    return {
-      riskLevel,
-      positionSize: adjustedAmount,
-      stopLoss: stopLossPrice,
-      takeProfit: takeProfitPrice,
-      maxLoss,
-      riskRating: Math.min(10, riskScore * 2 + 1),
-      canExecute,
-      blockingReasons,
-      recommendation
-    };
-  };
-
-  const getPortfolioValue = async (): Promise<number> => {
-    // In a real implementation, this would fetch current portfolio value
-    // For now, return a mock value
-    return 10000;
-  };
-
-  const checkDailyLimits = async (): Promise<boolean> => {
-    await loadDailyStats();
-    
-    if (!preferences) return false;
-
-    const limitsExceeded = 
-      dailyStats.trades >= preferences.riskLimits.maxTradesPerDay ||
-      (dailyStats.pnl < 0 && Math.abs(dailyStats.pnl) >= preferences.riskLimits.maxDailyLoss);
-
-    return !limitsExceeded;
   };
 
   const updateDailyStats = (tradeValue: number, pnl: number) => {
