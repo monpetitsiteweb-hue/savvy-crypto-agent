@@ -14,6 +14,7 @@ import {
   deriveExecutionClass,
   logExecutionClass,
 } from "../_shared/execution-semantics.ts";
+import { fetchOpenLotsAuthoritative } from "../_shared/openLots.ts";
 
 /**
  * B5 GUARD (HARDENED 2026-05-13): Verifies original_trade_id points to a VALID
@@ -6826,38 +6827,24 @@ async function detectConflicts(
         `[CONTEXT_GUARD] Epsilon: ${(contextDuplicateEpsilonPct * 100).toFixed(2)}% (from config: ${cfg.contextDuplicateEpsilonPct !== undefined})`,
       );
 
-      // Query OPEN BUY lots for this symbol (with entry_context in market_conditions)
-      const { data: openBuysWithContext } = await supabaseClient
-        .from("mock_trades")
-        .select("id, market_conditions, amount, original_trade_id")
-        .eq("user_id", intent.userId)
-        .eq("strategy_id", intent.strategyId)
-        .in("cryptocurrency", symbolVariants)
-        .eq("trade_type", "buy")
-        .eq("is_test_mode", isTestModeForContext);
+      // B17: authoritative open lots (corruption/archived/settlement filters applied).
+      const openLotsForCtx = await fetchOpenLotsAuthoritative(supabaseClient, {
+        userId: intent.userId,
+        strategyId: intent.strategyId,
+        isTestMode: isTestModeForContext,
+        symbol: baseSymbol,
+      });
+      // Re-hydrate market_conditions.entry_context per lot (needs row read).
+      const lotIds = openLotsForCtx.map(l => l.id);
+      const { data: ctxRows } = lotIds.length
+        ? await supabaseClient.from("mock_trades").select("id, market_conditions").in("id", lotIds)
+        : { data: [] as any[] };
+      const ctxById = new Map<string, any>((ctxRows || []).map((r: any) => [r.id, r.market_conditions?.entry_context]));
 
-      // For each BUY, check if it's still open and has matching context
-      for (const buyTrade of openBuysWithContext || []) {
-        // Skip if no entry_context or legacy trade
-        const ctx = buyTrade.market_conditions?.entry_context;
+      for (const lot of openLotsForCtx) {
+        const ctx = ctxById.get(lot.id);
         if (!ctx || ctx.context_version !== 1) continue;
-
-        // Check if this BUY is still open (remaining_amount > 0)
-        // Query sells that closed this specific BUY
-        const { data: sellsForBuy } = await supabaseClient
-          .from("mock_trades")
-          .select("original_purchase_amount")
-          .eq("original_trade_id", buyTrade.id)
-          .eq("trade_type", "sell");
-
-        const soldAmount = (sellsForBuy || []).reduce(
-          (sum: number, s: any) => sum + (parseFloat(s.original_purchase_amount) || 0),
-          0,
-        );
-        const remainingAmount = parseFloat(buyTrade.amount) - soldAmount;
-
-        // Skip closed lots
-        if (remainingAmount <= 1e-8) continue;
+        // remaining_amount already > 1e-8 (RPC contract); no re-check needed.
 
         // Check context match
         const sameType = ctx.trigger_type === entryContext.trigger_type;
@@ -6868,7 +6855,7 @@ async function detectConflicts(
         if (sameType && sameTimeframe && priceMatch) {
           console.log(`🚫 COORDINATOR: BUY blocked - duplicate entry context on open lot`);
           console.log(
-            `   Existing lot ${buyTrade.id}: trigger_type=${ctx.trigger_type}, timeframe=${ctx.timeframe}, anchor_price=${ctx.anchor_price}`,
+            `   Existing lot ${lot.id}: trigger_type=${ctx.trigger_type}, timeframe=${ctx.timeframe}, anchor_price=${ctx.anchor_price}`,
           );
           console.log(
             `   Price delta: ${(priceDelta * 100).toFixed(3)}% < epsilon ${(contextDuplicateEpsilonPct * 100).toFixed(2)}%`,
@@ -6911,20 +6898,21 @@ async function detectConflicts(
     // Uses is_open_position=true as proxy for open lots (maintained by clearOpenPositionIfFullyClosed).
     // Default: 1 (conservative fallback). Pyramiding only enabled via explicit config.
     const MAX_LOTS_PER_SYMBOL = cfg.maxLotsPerSymbol ?? 1;
-
-    const { count: openLotCount, error: lotCountError } = await supabaseClient
-      .from("mock_trades")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", intent.userId)
-      .eq("strategy_id", intent.strategyId)
-      .eq("is_test_mode", canonicalIsTestMode)
-      .in("cryptocurrency", symbolVariants)
-      .eq("trade_type", "buy")
-      .eq("is_open_position", true);
+    // B17: count derived from authoritative remaining-amount lots, not is_open_position flag.
+    // Semantically: "lots with remaining > 1e-8" replaces "rows with flag_open=true".
+    // These agree under healthy invariants; this is the more correct source.
+    let openLotCount: number | null = null;
+    let lotCountError: any = null;
+    try {
+      const lots = await fetchOpenLotsAuthoritative(supabaseClient, {
+        userId: intent.userId, strategyId: intent.strategyId,
+        isTestMode: canonicalIsTestMode, symbol: baseSymbol,
+      });
+      openLotCount = lots.length;
+    } catch (e) { lotCountError = e; }
 
     if (lotCountError) {
       console.error(`⚠️ COORDINATOR: Gate 5b lot count query failed`, lotCountError);
-      // Fail-safe: allow trade if count query fails (Gate 5b is now the sole guard — monitor closely)
     } else if ((openLotCount ?? 0) >= MAX_LOTS_PER_SYMBOL) {
       console.log(`🚫 COORDINATOR: BUY blocked - max lots per symbol reached (${openLotCount} >= ${MAX_LOTS_PER_SYMBOL}) for ${baseSymbol}`);
       guardReport.maxLotsPerSymbolReached = true;

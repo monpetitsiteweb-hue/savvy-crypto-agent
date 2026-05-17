@@ -21,6 +21,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { fetchOpenLotsAuthoritative } from "../_shared/openLots.ts";
 
 // ============= ENGINE MODE CONFIGURATION =============
 // Read from environment, default to 'SHADOW' for safety
@@ -2304,125 +2305,66 @@ serve(async (req) => {
 });
 
 // ============= PHASE S2: FETCH OPEN POSITIONS =============
-// IMPORTANT: Supabase caps queries at 1000 rows by default. Use pagination.
+// B17 (2026-05-17): replaced paginated global-FIFO replay with authoritative
+// per-lot RPC via fetchOpenLotsAuthoritative. The RPC enforces
+// is_corrupted=false, is_archived=false, execution_confirmed=true and
+// SELL settlement_status IN ('SETTLED','SETTLED_NO_FIFO'), and computes
+// per-lot remaining via original_trade_id JOIN (not pooled FIFO).
+// Pagination is unnecessary — RPC has no row cap.
 async function fetchOpenPositions(supabaseClient: any, userId: string, strategyId: string, isTestMode: boolean): Promise<OpenPosition[]> {
   try {
-    const PAGE_SIZE = 1000;
-    let allTrades: any[] = [];
-    let offset = 0;
-    let hasMore = true;
-    
-    while (hasMore) {
-      const { data: pageTrades, error: pageError } = await supabaseClient
-        .from('mock_trades')
-        .select('cryptocurrency, trade_type, amount, price, executed_at, id')
-        .eq('user_id', userId)
-        .eq('strategy_id', strategyId)
-        .eq('is_test_mode', isTestMode)
-        .eq('execution_confirmed', true)
-        .order('executed_at', { ascending: true })
-        .range(offset, offset + PAGE_SIZE - 1);
-
-      if (pageError) {
-        console.error('[fetchOpenPositions] Error fetching trades page:', pageError);
-        break;
-      }
-      const fetchedCount = pageTrades?.length || 0;
-      if (fetchedCount > 0) allTrades = allTrades.concat(pageTrades);
-      hasMore = fetchedCount === PAGE_SIZE;
-      offset += PAGE_SIZE;
-      if (offset > 50000) break; // Safety limit
-    }
-
-    const trades = allTrades;
-    console.log(`[fetchOpenPositions] Fetched ${trades.length} trades (paginated) for strategy ${strategyId.substring(0, 8)}...`);
-
-    if (trades.length === 0) {
+    const lots = await fetchOpenLotsAuthoritative(supabaseClient, {
+      userId, strategyId, isTestMode, symbol: null,
+    });
+    console.log(`[fetchOpenPositions] Fetched ${lots.length} open lots (authoritative) for strategy ${strategyId.substring(0, 8)}...`);
+    if (lots.length === 0) {
       console.log('[fetchOpenPositions] No trades found');
       return [];
     }
-
-    const positionMap = new Map<string, {
-      totalBuyAmount: number;
-      totalSellAmount: number;
-      buyTrades: Array<{ amount: number; price: number; executedAt: string; id: string }>;
-    }>();
-
-    for (const trade of trades) {
-      const symbol = trade.cryptocurrency.replace('-EUR', '');
-      if (!positionMap.has(symbol)) {
-        positionMap.set(symbol, { totalBuyAmount: 0, totalSellAmount: 0, buyTrades: [] });
-      }
-      const pos = positionMap.get(symbol)!;
-      
-      if (trade.trade_type === 'buy') {
-        pos.totalBuyAmount += Number(trade.amount);
-        pos.buyTrades.push({
-          amount: Number(trade.amount),
-          price: Number(trade.price),
-          executedAt: trade.executed_at,
-          id: trade.id,
-        });
-      } else if (trade.trade_type === 'sell') {
-        pos.totalSellAmount += Number(trade.amount);
-      }
+    // Group lots by symbol (RPC already returns base symbol, ASC by executed_at)
+    const bySymbol = new Map<string, typeof lots>();
+    for (const lot of lots) {
+      const sym = lot.symbol.replace('-EUR', '');
+      if (!bySymbol.has(sym)) bySymbol.set(sym, []);
+      bySymbol.get(sym)!.push(lot);
     }
-
     const openPositions: OpenPosition[] = [];
-    
-    for (const [symbol, pos] of positionMap) {
-      const netAmount = pos.totalBuyAmount - pos.totalSellAmount;
-      
-      if (netAmount > 0.00000001) {
-        // FIFO-correct average price: subtract sold quantity from earliest buys first
-        // This ensures averagePrice reflects only REMAINING (unsold) lots
-        let remainingSold = pos.totalSellAmount;
-        let fifoValue = 0;
-        let fifoAmount = 0;
-        const tradeIds: string[] = [];
-        const openLots: OpenLotRef[] = [];
-        let oldestDate = '';
-        
-        // buyTrades are already in ascending order (oldest first)
-        for (const buy of pos.buyTrades) {
-          // How much of this buy lot is consumed by prior sells (FIFO)?
-          const consumedFromThisBuy = Math.min(remainingSold, buy.amount);
-          const remainingFromThisBuy = buy.amount - consumedFromThisBuy;
-          remainingSold = Math.max(0, remainingSold - buy.amount);
-          
-          if (remainingFromThisBuy > DUST_THRESHOLD) {
-            fifoValue += remainingFromThisBuy * buy.price;
-            fifoAmount += remainingFromThisBuy;
-            tradeIds.push(buy.id);
-            openLots.push({
-              id: buy.id,
-              remainingAmount: remainingFromThisBuy,
-              entryPrice: buy.price,
-              entryValue: remainingFromThisBuy * buy.price,
-              executedAt: buy.executedAt,
-            });
-            if (!oldestDate || buy.executedAt < oldestDate) {
-              oldestDate = buy.executedAt;
-            }
-          }
+    for (const [symbol, symLots] of bySymbol) {
+      let totalCostBasis = 0;
+      let totalRemainingAmount = 0;
+      const tradeIds: string[] = [];
+      const openLots: OpenLotRef[] = [];
+      let oldestDate = '';
+      for (const lot of symLots) {
+        if (lot.remaining_amount <= DUST_THRESHOLD) continue;
+        totalCostBasis += lot.remaining_amount * lot.entry_price;
+        totalRemainingAmount += lot.remaining_amount;
+        tradeIds.push(lot.id);
+        openLots.push({
+          id: lot.id,
+          remainingAmount: lot.remaining_amount,
+          entryPrice: lot.entry_price,
+          entryValue: lot.remaining_amount * lot.entry_price,
+          executedAt: lot.executed_at,
+        });
+        if (!oldestDate || lot.executed_at < oldestDate) {
+          oldestDate = lot.executed_at;
         }
-        
-        const averagePrice = fifoAmount > 0 ? fifoValue / fifoAmount : 0;
-        
-        console.log(`[fetchOpenPositions] FIFO avg for ${symbol}: avgPrice=${averagePrice.toFixed(6)}, fifoAmount=${fifoAmount.toFixed(8)}, netAmount=${netAmount.toFixed(8)}, totalBuys=${pos.buyTrades.length}, openLots=${openLots.length}`);
-        
+      }
+      if (totalRemainingAmount > 0.00000001) {
+        const averagePrice = totalCostBasis / totalRemainingAmount;
+        console.log(`[fetchOpenPositions] Position ${symbol}: avgPrice=${averagePrice.toFixed(6)}, totalRemaining=${totalRemainingAmount.toFixed(8)}, totalCostBasis=${totalCostBasis.toFixed(2)}, lots=${symLots.length}, openLots=${openLots.length}`);
         openPositions.push({
           cryptocurrency: symbol,
-          totalAmount: netAmount,
+          totalAmount: totalRemainingAmount,
           averagePrice,
           oldestPurchaseDate: oldestDate,
-          totalBuyValue: fifoValue,
+          totalBuyValue: totalCostBasis,
           tradeIds,
           openLots,
         });
       }
     }
-
     return openPositions;
   } catch (err) {
     console.error('Error in fetchOpenPositions:', err);
