@@ -6560,8 +6560,7 @@ async function detectConflicts(
         positionsBySymbol[sym] = exposureEUR;
         totalExposureEUR += exposureEUR;
       }
-    }</replace>
-</invoke>
+    }
 
     console.log(
       `[EXPOSURE] NET positions:`,
