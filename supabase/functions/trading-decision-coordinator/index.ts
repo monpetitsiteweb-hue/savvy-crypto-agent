@@ -6898,20 +6898,21 @@ async function detectConflicts(
     // Uses is_open_position=true as proxy for open lots (maintained by clearOpenPositionIfFullyClosed).
     // Default: 1 (conservative fallback). Pyramiding only enabled via explicit config.
     const MAX_LOTS_PER_SYMBOL = cfg.maxLotsPerSymbol ?? 1;
-
-    const { count: openLotCount, error: lotCountError } = await supabaseClient
-      .from("mock_trades")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", intent.userId)
-      .eq("strategy_id", intent.strategyId)
-      .eq("is_test_mode", canonicalIsTestMode)
-      .in("cryptocurrency", symbolVariants)
-      .eq("trade_type", "buy")
-      .eq("is_open_position", true);
+    // B17: count derived from authoritative remaining-amount lots, not is_open_position flag.
+    // Semantically: "lots with remaining > 1e-8" replaces "rows with flag_open=true".
+    // These agree under healthy invariants; this is the more correct source.
+    let openLotCount: number | null = null;
+    let lotCountError: any = null;
+    try {
+      const lots = await fetchOpenLotsAuthoritative(supabaseClient, {
+        userId: intent.userId, strategyId: intent.strategyId,
+        isTestMode: canonicalIsTestMode, symbol: baseSymbol,
+      });
+      openLotCount = lots.length;
+    } catch (e) { lotCountError = e; }
 
     if (lotCountError) {
       console.error(`⚠️ COORDINATOR: Gate 5b lot count query failed`, lotCountError);
-      // Fail-safe: allow trade if count query fails (Gate 5b is now the sole guard — monitor closely)
     } else if ((openLotCount ?? 0) >= MAX_LOTS_PER_SYMBOL) {
       console.log(`🚫 COORDINATOR: BUY blocked - max lots per symbol reached (${openLotCount} >= ${MAX_LOTS_PER_SYMBOL}) for ${baseSymbol}`);
       guardReport.maxLotsPerSymbolReached = true;
