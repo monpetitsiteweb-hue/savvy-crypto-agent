@@ -6855,7 +6855,7 @@ async function detectConflicts(
         if (sameType && sameTimeframe && priceMatch) {
           console.log(`🚫 COORDINATOR: BUY blocked - duplicate entry context on open lot`);
           console.log(
-            `   Existing lot ${buyTrade.id}: trigger_type=${ctx.trigger_type}, timeframe=${ctx.timeframe}, anchor_price=${ctx.anchor_price}`,
+            `   Existing lot ${lot.id}: trigger_type=${ctx.trigger_type}, timeframe=${ctx.timeframe}, anchor_price=${ctx.anchor_price}`,
           );
           console.log(
             `   Price delta: ${(priceDelta * 100).toFixed(3)}% < epsilon ${(contextDuplicateEpsilonPct * 100).toFixed(2)}%`,
