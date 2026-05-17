@@ -5287,6 +5287,73 @@ async function executeTradeDirectly(
     if (intent.side === "BUY") {
       console.log("[DEBUG][executeTradeDirectly] ENTERED BUY branch");
 
+      // B4 TEST capital cap (symmetric to onchain-sign-and-send B4 REAL guard).
+      // Gated on canonicalIsTestMode === true to avoid touching REAL placeholder path.
+      if (sc?.canonicalIsTestMode === true) {
+        const eurAmountB4 = tradeAllocation;
+        try {
+          const { data: pmB4, error: pmB4Err } = await supabaseClient
+            .rpc('get_portfolio_metrics', {
+              p_user_id: intent.userId,
+              p_is_test_mode: true,
+            });
+          if (pmB4Err) {
+            console.log(`🚫 DIRECT: BUY blocked - get_portfolio_metrics RPC error: ${pmB4Err.message}`);
+            return {
+              success: false,
+              error: "blocked_missing_config:b4TestCap:rpc_error",
+              reason: "blocked_missing_config:b4TestCap:rpc_error",
+              details: pmB4Err.message,
+            };
+          }
+          const cashB4 = parseFloat(pmB4?.cash_balance_eur ?? 'NaN');
+          if (!Number.isFinite(cashB4)) {
+            console.log(`🚫 DIRECT: BUY blocked - cash_balance_eur not finite (got: ${cashB4})`);
+            return {
+              success: false,
+              error: "blocked_missing_config:b4TestCap:cashBalanceEur:non_finite",
+              reason: "blocked_missing_config:b4TestCap:cashBalanceEur:non_finite",
+              details: `cash_balance_eur not finite: ${pmB4?.cash_balance_eur}`,
+            };
+          }
+          if (cashB4 < 0) {
+            console.log(`🚫 DIRECT: BUY blocked - cash_balance_eur negative (got: ${cashB4})`);
+            return {
+              success: false,
+              error: "blocked_missing_config:b4TestCap:cashBalanceEur:negative",
+              reason: "blocked_missing_config:b4TestCap:cashBalanceEur:negative",
+              details: `cash_balance_eur negative: ${cashB4}`,
+            };
+          }
+          if (!Number.isFinite(eurAmountB4) || eurAmountB4 <= 0) {
+            console.log(`🚫 DIRECT: BUY blocked - tradeAllocation invalid (got: ${eurAmountB4})`);
+            return {
+              success: false,
+              error: "blocked_missing_config:b4TestCap:eurAmount:invalid",
+              reason: "blocked_missing_config:b4TestCap:eurAmount:invalid",
+              details: `tradeAllocation invalid: ${tradeAllocation}`,
+            };
+          }
+          if (eurAmountB4 > cashB4) {
+            console.log(`🚫 DIRECT: BUY blocked - b4 TEST capital cap exceeded (eurAmount=€${eurAmountB4} > cash_balance_eur=€${cashB4})`);
+            return {
+              success: false,
+              error: "blocked_user_capital_exceeded_test",
+              reason: "blocked_user_capital_exceeded_test",
+              details: { eurAmount: eurAmountB4, cashBalanceEur: cashB4, exceededBy: eurAmountB4 - cashB4 },
+            };
+          }
+        } catch (e: any) {
+          console.log(`🚫 DIRECT: BUY blocked - get_portfolio_metrics threw: ${e?.message}`);
+          return {
+            success: false,
+            error: "blocked_missing_config:b4TestCap:exception",
+            reason: "blocked_missing_config:b4TestCap:exception",
+            details: e?.message,
+          };
+        }
+      }
+
       // sc.canonicalIsTestMode is the single source of truth
 
       // Calculate current EUR balance from all trades (filter by canonical test mode)
@@ -6502,6 +6569,7 @@ async function detectConflicts(
     // portfolio_capital (cash + current position value, mark-to-market).
     // RPC failure or non-positive value => block BUY (do not fall back).
     let walletValueEUR: number;
+    let cashBalanceEur: number = NaN;
     try {
       const { data: portfolioMetrics, error: pmError } = await supabaseClient
         .rpc('get_portfolio_metrics', {
@@ -6523,10 +6591,38 @@ async function detectConflicts(
       }
 
       walletValueEUR = totalValue;
+      cashBalanceEur = parseFloat(portfolioMetrics?.cash_balance_eur ?? 'NaN');
     } catch (e: any) {
       console.log(`🚫 COORDINATOR: BUY blocked - get_portfolio_metrics threw: ${e?.message}`);
       guardReport.missingConfig = "walletValueEUR:exception";
       return { hasConflict: true, reason: "blocked_missing_config:walletValueEUR:exception", guardReport };
+    }
+
+    // B4 TEST capital cap (symmetric to onchain-sign-and-send B4 REAL guard).
+    // TEST mode is fail-CLOSED here (no downstream defense like REAL has).
+    // Only applies when canonicalIsTestMode === true (REAL path has its own B4 in onchain-sign-and-send).
+    if (strategyConfig?.canonicalIsTestMode === true) {
+      const eurAmount = Number(intent.metadata?.eurAmount);
+      if (!Number.isFinite(cashBalanceEur)) {
+        console.log(`🚫 COORDINATOR: BUY blocked - cash_balance_eur not finite (got: ${cashBalanceEur})`);
+        guardReport.missingConfig = "b4TestCap:cashBalanceEur:non_finite";
+        return { hasConflict: true, reason: "blocked_missing_config:b4TestCap:cashBalanceEur:non_finite", guardReport };
+      }
+      if (cashBalanceEur < 0) {
+        console.log(`🚫 COORDINATOR: BUY blocked - cash_balance_eur negative (got: ${cashBalanceEur})`);
+        guardReport.missingConfig = "b4TestCap:cashBalanceEur:negative";
+        return { hasConflict: true, reason: "blocked_missing_config:b4TestCap:cashBalanceEur:negative", guardReport };
+      }
+      if (!Number.isFinite(eurAmount) || eurAmount <= 0) {
+        console.log(`🚫 COORDINATOR: BUY blocked - intent.metadata.eurAmount invalid (got: ${intent.metadata?.eurAmount})`);
+        guardReport.missingConfig = "b4TestCap:eurAmount:invalid";
+        return { hasConflict: true, reason: "blocked_missing_config:b4TestCap:eurAmount:invalid", guardReport };
+      }
+      if (eurAmount > cashBalanceEur) {
+        console.log(`🚫 COORDINATOR: BUY blocked - b4 TEST capital cap exceeded (eurAmount=€${eurAmount} > cash_balance_eur=€${cashBalanceEur})`);
+        guardReport.b4TestCap = { eurAmount, cashBalanceEur, exceededBy: eurAmount - cashBalanceEur };
+        return { hasConflict: true, reason: "blocked_user_capital_exceeded_test", guardReport };
+      }
     }
 
     // FAIL-CLOSED: maxWalletExposure required (at least one of two sources)
