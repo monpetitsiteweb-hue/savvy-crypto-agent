@@ -6930,7 +6930,13 @@ async function detectConflicts(
     // Block BUY if a SELL was executed on this symbol within cooldown window.
     // Prevents buying while the system is actively unwinding.
     // Must run BEFORE Gate 5b (cheaper check, higher logical priority).
-    const antiContradictoryCooldownMs = cfg.antiContradictoryCooldownMs ?? 60000;
+    // FAIL-CLOSED: antiContradictoryCooldownMs required
+    const antiContradictoryCooldownMs = cfg.antiContradictoryCooldownMs;
+    if (antiContradictoryCooldownMs === undefined || antiContradictoryCooldownMs === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: antiContradictoryCooldownMs`);
+      guardReport.missingConfig = "antiContradictoryCooldownMs";
+      return { hasConflict: true, reason: "blocked_missing_config:antiContradictoryCooldownMs", guardReport };
+    }
     const recentSellCutoff = new Date(Date.now() - antiContradictoryCooldownMs).toISOString();
     const { data: recentSellsForAntiContra } = await supabaseClient
       .from("mock_trades")
