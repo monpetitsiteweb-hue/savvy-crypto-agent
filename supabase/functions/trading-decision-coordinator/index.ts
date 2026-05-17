@@ -6827,38 +6827,24 @@ async function detectConflicts(
         `[CONTEXT_GUARD] Epsilon: ${(contextDuplicateEpsilonPct * 100).toFixed(2)}% (from config: ${cfg.contextDuplicateEpsilonPct !== undefined})`,
       );
 
-      // Query OPEN BUY lots for this symbol (with entry_context in market_conditions)
-      const { data: openBuysWithContext } = await supabaseClient
-        .from("mock_trades")
-        .select("id, market_conditions, amount, original_trade_id")
-        .eq("user_id", intent.userId)
-        .eq("strategy_id", intent.strategyId)
-        .in("cryptocurrency", symbolVariants)
-        .eq("trade_type", "buy")
-        .eq("is_test_mode", isTestModeForContext);
+      // B17: authoritative open lots (corruption/archived/settlement filters applied).
+      const openLotsForCtx = await fetchOpenLotsAuthoritative(supabaseClient, {
+        userId: intent.userId,
+        strategyId: intent.strategyId,
+        isTestMode: isTestModeForContext,
+        symbol: baseSymbol,
+      });
+      // Re-hydrate market_conditions.entry_context per lot (needs row read).
+      const lotIds = openLotsForCtx.map(l => l.id);
+      const { data: ctxRows } = lotIds.length
+        ? await supabaseClient.from("mock_trades").select("id, market_conditions").in("id", lotIds)
+        : { data: [] as any[] };
+      const ctxById = new Map<string, any>((ctxRows || []).map((r: any) => [r.id, r.market_conditions?.entry_context]));
 
-      // For each BUY, check if it's still open and has matching context
-      for (const buyTrade of openBuysWithContext || []) {
-        // Skip if no entry_context or legacy trade
-        const ctx = buyTrade.market_conditions?.entry_context;
+      for (const lot of openLotsForCtx) {
+        const ctx = ctxById.get(lot.id);
         if (!ctx || ctx.context_version !== 1) continue;
-
-        // Check if this BUY is still open (remaining_amount > 0)
-        // Query sells that closed this specific BUY
-        const { data: sellsForBuy } = await supabaseClient
-          .from("mock_trades")
-          .select("original_purchase_amount")
-          .eq("original_trade_id", buyTrade.id)
-          .eq("trade_type", "sell");
-
-        const soldAmount = (sellsForBuy || []).reduce(
-          (sum: number, s: any) => sum + (parseFloat(s.original_purchase_amount) || 0),
-          0,
-        );
-        const remainingAmount = parseFloat(buyTrade.amount) - soldAmount;
-
-        // Skip closed lots
-        if (remainingAmount <= 1e-8) continue;
+        // remaining_amount already > 1e-8 (RPC contract); no re-check needed.
 
         // Check context match
         const sameType = ctx.trigger_type === entryContext.trigger_type;
