@@ -6586,7 +6586,7 @@ async function detectConflicts(
       maxWalletExposureEUR,
       totalExposureEUR,
       tradeValueEUR,
-      tradesRowCount: allTrades?.length ?? null,
+      tradesRowCount: openLots?.length ?? null,
       tradesQueryError: tradesQueryError ? tradesQueryError.message : null,
       intentSide: intent.side,
       strategyId: intent.strategyId,
