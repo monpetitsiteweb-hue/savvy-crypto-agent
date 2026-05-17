@@ -5386,6 +5386,25 @@ export type Database = {
           strategy_id: string
         }[]
       }
+      get_open_lots_authoritative: {
+        Args: {
+          p_is_test_mode: boolean
+          p_strategy_id: string
+          p_symbol?: string
+          p_user_id: string
+        }
+        Returns: {
+          entry_price: number
+          executed_at: string
+          flag_open: boolean
+          id: string
+          original_amount: number
+          original_value_eur: number
+          remaining_amount: number
+          symbol: string
+          tx_hash: string
+        }[]
+      }
       get_pending_decisions_for_horizon: {
         Args: { horizon_key: string }
         Returns: {
