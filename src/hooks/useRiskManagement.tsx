@@ -296,8 +296,6 @@ export const useRiskManagement = () => {
     dailyStats,
     loadUserPreferences,
     saveUserPreferences,
-    assessTradeRisk,
-    checkDailyLimits,
     updateDailyStats,
     getRiskExplanation,
     loadDailyStats
