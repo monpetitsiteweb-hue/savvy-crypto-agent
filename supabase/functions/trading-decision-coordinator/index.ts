@@ -14,6 +14,7 @@ import {
   deriveExecutionClass,
   logExecutionClass,
 } from "../_shared/execution-semantics.ts";
+import { fetchOpenLotsAuthoritative } from "../_shared/openLots.ts";
 
 /**
  * B5 GUARD (HARDENED 2026-05-13): Verifies original_trade_id points to a VALID
