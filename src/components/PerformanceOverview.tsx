@@ -93,12 +93,16 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       }
 
       // Fetch sell trades for win/loss
-      const { data: sellTrades, error } = await supabase
+      const { data: sellTrades, error } = await ((supabase as any)
         .from('mock_trades')
         .select('id, realized_pnl')
         .eq('user_id', user.id)
         .eq('trade_type', 'sell')
-        .eq('is_test_mode', testMode);
+        .eq('is_test_mode', testMode)
+        .eq('is_corrupted', false)
+        .eq('is_archived', false)
+        .eq('execution_confirmed', true)
+        .eq('settlement_status', 'SETTLED'));
 
       if (error) throw error;
 
@@ -135,12 +139,14 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       if (!testMode) {
         setTxCount(realConfirmedIds!.size);
       } else {
-        const { count } = await supabase
+        const { count } = await ((supabase as any)
           .from('mock_trades')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .eq('is_test_mode', testMode)
-          .eq('is_corrupted', false);
+          .eq('is_corrupted', false)
+          .eq('is_archived', false)
+          .eq('execution_confirmed', true));
         setTxCount(count || 0);
       }
     } catch (error) {
