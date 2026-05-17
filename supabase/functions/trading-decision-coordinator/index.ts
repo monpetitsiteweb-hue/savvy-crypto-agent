@@ -6498,11 +6498,75 @@ async function detectConflicts(
   // =====================================================================
   if (intent.side === "BUY") {
     const cfg = strategyConfig?.configuration || strategyConfig || {};
-    const walletValueEUR = cfg.walletValueEUR || 30000; // Test mode default
-    const maxWalletExposurePct = Math.min(cfg.maxWalletExposure || 80, cfg.riskManagement?.maxWalletExposure || 80);
-    const selectedCoinsCount = (cfg.selectedCoins || []).length || 5;
-    const maxActiveCoins = cfg.maxActiveCoins || selectedCoinsCount;
-    const perTradeAllocation = cfg.perTradeAllocation || 50;
+    // FAIL-CLOSED: walletValueEUR resolved dynamically from
+    // portfolio_capital (cash + current position value, mark-to-market).
+    // RPC failure or non-positive value => block BUY (do not fall back).
+    let walletValueEUR: number;
+    try {
+      const { data: portfolioMetrics, error: pmError } = await supabaseClient
+        .rpc('get_portfolio_metrics', {
+          p_user_id: intent.userId,
+          p_is_test_mode: strategyConfig?.canonicalIsTestMode ?? true,
+        });
+
+      if (pmError) {
+        console.log(`🚫 COORDINATOR: BUY blocked - get_portfolio_metrics RPC error: ${pmError.message}`);
+        guardReport.missingConfig = "walletValueEUR:rpc_error";
+        return { hasConflict: true, reason: "blocked_missing_config:walletValueEUR:rpc_error", guardReport };
+      }
+
+      const totalValue = parseFloat(portfolioMetrics?.total_portfolio_value_eur ?? '0');
+      if (!Number.isFinite(totalValue) || totalValue <= 0) {
+        console.log(`🚫 COORDINATOR: BUY blocked - total_portfolio_value_eur not positive (got: ${portfolioMetrics?.total_portfolio_value_eur})`);
+        guardReport.missingConfig = "walletValueEUR:non_positive";
+        return { hasConflict: true, reason: "blocked_missing_config:walletValueEUR:non_positive", guardReport };
+      }
+
+      walletValueEUR = totalValue;
+    } catch (e: any) {
+      console.log(`🚫 COORDINATOR: BUY blocked - get_portfolio_metrics threw: ${e?.message}`);
+      guardReport.missingConfig = "walletValueEUR:exception";
+      return { hasConflict: true, reason: "blocked_missing_config:walletValueEUR:exception", guardReport };
+    }
+
+    // FAIL-CLOSED: maxWalletExposure required (at least one of two sources)
+    const _maxWalletExpRoot = cfg.maxWalletExposure;
+    const _maxWalletExpRisk = cfg.riskManagement?.maxWalletExposure;
+    if ((_maxWalletExpRoot === undefined || _maxWalletExpRoot === null) &&
+        (_maxWalletExpRisk === undefined || _maxWalletExpRisk === null)) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: maxWalletExposure (neither cfg.maxWalletExposure nor cfg.riskManagement.maxWalletExposure)`);
+      guardReport.missingConfig = "maxWalletExposure";
+      return { hasConflict: true, reason: "blocked_missing_config:maxWalletExposure", guardReport };
+    }
+    const maxWalletExposurePct = (_maxWalletExpRoot !== undefined && _maxWalletExpRoot !== null &&
+                                  _maxWalletExpRisk !== undefined && _maxWalletExpRisk !== null)
+      ? Math.min(_maxWalletExpRoot, _maxWalletExpRisk)
+      : (_maxWalletExpRoot ?? _maxWalletExpRisk);
+
+    // FAIL-CLOSED: selectedCoins required (non-empty array)
+    const _selectedCoins = cfg.selectedCoins;
+    if (!Array.isArray(_selectedCoins) || _selectedCoins.length === 0) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: selectedCoins (empty or not an array)`);
+      guardReport.missingConfig = "selectedCoins";
+      return { hasConflict: true, reason: "blocked_missing_config:selectedCoins", guardReport };
+    }
+    const selectedCoinsCount = _selectedCoins.length;
+
+    // FAIL-CLOSED: maxActiveCoins required (no fallback chain)
+    const maxActiveCoins = cfg.maxActiveCoins;
+    if (maxActiveCoins === undefined || maxActiveCoins === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: maxActiveCoins`);
+      guardReport.missingConfig = "maxActiveCoins";
+      return { hasConflict: true, reason: "blocked_missing_config:maxActiveCoins", guardReport };
+    }
+
+    // FAIL-CLOSED: perTradeAllocation required
+    const perTradeAllocation = cfg.perTradeAllocation;
+    if (perTradeAllocation === undefined || perTradeAllocation === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: perTradeAllocation`);
+      guardReport.missingConfig = "perTradeAllocation";
+      return { hasConflict: true, reason: "blocked_missing_config:perTradeAllocation", guardReport };
+    }
 
     // Calculate derived limits
     const maxWalletExposureEUR = walletValueEUR * (maxWalletExposurePct / 100);
@@ -6866,7 +6930,13 @@ async function detectConflicts(
     // Block BUY if a SELL was executed on this symbol within cooldown window.
     // Prevents buying while the system is actively unwinding.
     // Must run BEFORE Gate 5b (cheaper check, higher logical priority).
-    const antiContradictoryCooldownMs = cfg.antiContradictoryCooldownMs ?? 60000;
+    // FAIL-CLOSED: antiContradictoryCooldownMs required
+    const antiContradictoryCooldownMs = cfg.antiContradictoryCooldownMs;
+    if (antiContradictoryCooldownMs === undefined || antiContradictoryCooldownMs === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: antiContradictoryCooldownMs`);
+      guardReport.missingConfig = "antiContradictoryCooldownMs";
+      return { hasConflict: true, reason: "blocked_missing_config:antiContradictoryCooldownMs", guardReport };
+    }
     const recentSellCutoff = new Date(Date.now() - antiContradictoryCooldownMs).toISOString();
     const { data: recentSellsForAntiContra } = await supabaseClient
       .from("mock_trades")
