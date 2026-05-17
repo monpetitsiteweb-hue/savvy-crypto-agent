@@ -139,14 +139,14 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
       if (!testMode) {
         setTxCount(realConfirmedIds!.size);
       } else {
-        const { count } = await supabase
+        const { count } = await ((supabase as any)
           .from('mock_trades')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .eq('is_test_mode', testMode)
           .eq('is_corrupted', false)
           .eq('is_archived', false)
-          .eq('execution_confirmed', true);
+          .eq('execution_confirmed', true));
         setTxCount(count || 0);
       }
     } catch (error) {
