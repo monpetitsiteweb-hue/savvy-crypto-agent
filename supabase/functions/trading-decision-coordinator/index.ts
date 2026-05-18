@@ -6945,6 +6945,61 @@ async function detectConflicts(
       return { hasConflict: true, reason: "blocked_by_entry_spacing", guardReport };
     }
 
+    // ========= GATE 4b: MAX TRADES PER DAY (ROLLING 24h CADENCE CAP) =========
+    // Wired 2026-05-18 — was previously in DeprecatedFieldsPanel UI parking lot.
+    // FAIL-CLOSED: invalid/missing config blocks; 0 explicitly blocks all BUYs.
+    // PR-3 canonical fail-closed template. B17-compliant filters.
+    const maxTradesPerDay = cfg.maxTradesPerDay;
+    if (maxTradesPerDay === undefined || maxTradesPerDay === null) {
+      console.log(`🚫 COORDINATOR: BUY blocked - missing required config: maxTradesPerDay`);
+      guardReport.missingConfig = "maxTradesPerDay";
+      return { hasConflict: true, reason: "blocked_missing_config:maxTradesPerDay:not_set", guardReport };
+    }
+    if (!Number.isFinite(maxTradesPerDay) || maxTradesPerDay < 0) {
+      console.log(`🚫 COORDINATOR: BUY blocked - invalid maxTradesPerDay=${maxTradesPerDay}`);
+      guardReport.invalidConfig = "maxTradesPerDay";
+      return { hasConflict: true, reason: "blocked_missing_config:maxTradesPerDay:invalid", guardReport };
+    }
+    if (maxTradesPerDay === 0) {
+      console.log(`🚫 COORDINATOR: BUY blocked - maxTradesPerDay=0 (all BUYs disabled by config)`);
+      guardReport.maxTradesPerDayBlocked = true;
+      return { hasConflict: true, reason: "blocked_max_trades_per_day_reached", guardReport };
+    }
+
+    const tradesTodayWindowStart = new Date(Date.now() - 86_400_000).toISOString();
+    // (supabaseClient as any) cast: long .eq() chain triggers TS2589 in shared client typings
+    // (same precedent as PerformanceOverview L96 / useRiskManagement L85).
+    const { data: recentBuysToday, error: tradesTodayErr } = await (supabaseClient as any)
+      .from("mock_trades")
+      .select("id", { count: "exact", head: false })
+      .eq("user_id", intent.userId)
+      .eq("strategy_id", intent.strategyId)
+      .eq("trade_type", "buy")
+      .eq("is_corrupted", false)
+      .eq("is_archived", false)
+      .eq("execution_confirmed", true)
+      .gte("executed_at", tradesTodayWindowStart);
+
+    if (tradesTodayErr) {
+      console.log(`🚫 COORDINATOR: BUY blocked - maxTradesPerDay query error: ${tradesTodayErr.message}`);
+      guardReport.maxTradesPerDayQueryError = tradesTodayErr.message;
+      return { hasConflict: true, reason: "blocked_missing_config:maxTradesPerDay:query_error", guardReport };
+    }
+
+    const tradesToday = Array.isArray(recentBuysToday) ? recentBuysToday.length : 0;
+    if (tradesToday >= maxTradesPerDay) {
+      console.log(
+        `🚫 COORDINATOR: BUY blocked - max trades per day reached (${tradesToday}/${maxTradesPerDay} in rolling 24h)`,
+      );
+      guardReport.maxTradesPerDayBlocked = true;
+      guardReport.maxTradesPerDayDiagnostic = {
+        tradesToday,
+        cap: maxTradesPerDay,
+        windowStart: tradesTodayWindowStart,
+      };
+      return { hasConflict: true, reason: "blocked_max_trades_per_day_reached", guardReport };
+    }
+
     // ========= GATE 5: CONTEXT DUPLICATE DETECTION (PYRAMIDING MODEL) =========
     // Block BUYs with duplicate entry_context on OPEN lots for same symbol
     // Allows pyramiding: same symbol, different context → ALLOWED

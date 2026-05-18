@@ -55,7 +55,6 @@ export const DEPRECATED_FIELDS = {
     icon: DollarSign,
     fields: [
       { key: 'dailyProfitTarget', label: 'Daily Profit Target (€)', type: 'number', defaultValue: 100 },
-      { key: 'maxTradesPerDay', label: 'Max Trades Per Day', type: 'number', defaultValue: 10 },
       { key: 'maxTotalTrades', label: 'Max Total Trades', type: 'number', defaultValue: 100 },
       { key: 'tradeCooldownMinutes', label: 'Trade Cooldown (min)', type: 'number', defaultValue: 5 },
       { key: 'autoCloseAfterHours', label: 'Auto Close After (hours)', type: 'number', defaultValue: 24 },
