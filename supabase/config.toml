@@ -207,3 +207,6 @@ verify_jwt = false
 
 [functions.price-data-lifecycle]
 verify_jwt = false
+
+[functions.reconcile-portfolio-capital]
+verify_jwt = false
