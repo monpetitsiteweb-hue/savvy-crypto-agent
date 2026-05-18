@@ -1529,8 +1529,31 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                               </span>
                             </div>
                           </div>
+
+                          {/* Max Trades Per Day (Cadence Cap) */}
+                          <div className="space-y-2">
+                            <TooltipField
+                              description="Maximum number of BUYs allowed in a rolling 24-hour window across this strategy. Set to 0 to block all BUYs."
+                              examples={["Cap at 50 BUYs/day", "Set to 0 to pause all BUYs", "Allow 200 BUYs/day for high-frequency"]}
+                            >
+                              <Label htmlFor="maxTradesPerDay">Max Trades Per Day</Label>
+                            </TooltipField>
+                            <p className="text-sm text-muted-foreground">
+                              Maximum number of BUYs allowed in a rolling 24-hour window across this strategy. Set to 0 to block all BUYs. Active backend cadence guard since 2026-05-18.
+                            </p>
+                            <Input
+                              id="maxTradesPerDay"
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={formData.maxTradesPerDay}
+                              onChange={(e) => updateFormData('maxTradesPerDay', Math.max(0, parseInt(e.target.value) || 0))}
+                              className="w-32 text-base"
+                            />
+                          </div>
                         </CardContent>
                       </Card>
+
 
                       {/* Strategy Performance Preview */}
                       {renderStrategyDetails()}
