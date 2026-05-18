@@ -3060,6 +3060,72 @@ export type Database = {
           },
         ]
       }
+      reconciliation_alerts: {
+        Row: {
+          actual_cash_eur: number
+          created_at: string
+          delta_eur: number
+          expected_cash_eur: number
+          id: string
+          is_test_mode: boolean
+          n_buys: number
+          n_sells: number
+          notes: string | null
+          resolved: boolean
+          resolved_at: string | null
+          resolved_by: string | null
+          starting_capital_eur: number
+          sum_buys: number
+          sum_fees: number
+          sum_gas_eur: number
+          sum_sells: number
+          threshold_eur: number
+          user_id: string
+        }
+        Insert: {
+          actual_cash_eur: number
+          created_at?: string
+          delta_eur: number
+          expected_cash_eur: number
+          id?: string
+          is_test_mode: boolean
+          n_buys?: number
+          n_sells?: number
+          notes?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          starting_capital_eur: number
+          sum_buys?: number
+          sum_fees?: number
+          sum_gas_eur?: number
+          sum_sells?: number
+          threshold_eur: number
+          user_id: string
+        }
+        Update: {
+          actual_cash_eur?: number
+          created_at?: string
+          delta_eur?: number
+          expected_cash_eur?: number
+          id?: string
+          is_test_mode?: boolean
+          n_buys?: number
+          n_sells?: number
+          notes?: string | null
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          starting_capital_eur?: number
+          sum_buys?: number
+          sum_fees?: number
+          sum_gas_eur?: number
+          sum_sells?: number
+          threshold_eur?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       scheduler_execution_log: {
         Row: {
           created_at: string
@@ -5480,6 +5546,24 @@ export type Database = {
       recalculate_cash_from_trades: {
         Args: { p_is_test_mode?: boolean; p_user_id: string }
         Returns: Json
+      }
+      reconcile_portfolio_capital: {
+        Args: never
+        Returns: {
+          actual_cash_eur: number
+          delta_eur: number
+          expected_cash_eur: number
+          is_test_mode: boolean
+          n_buys: number
+          n_sells: number
+          starting_capital_eur: number
+          sum_buy_fees: number
+          sum_buys: number
+          sum_gas_eur: number
+          sum_sell_fees: number
+          sum_sells: number
+          user_id: string
+        }[]
       }
       refresh_data_health_metrics: { Args: never; Returns: undefined }
       release_execution_lock: { Args: { p_lock_key: string }; Returns: boolean }
