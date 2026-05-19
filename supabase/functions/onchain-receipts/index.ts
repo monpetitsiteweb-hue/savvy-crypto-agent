@@ -263,48 +263,92 @@ function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): Deco
     };
   });
   
-  // Find stablecoin transfer (represents USD value)
-  const stablecoinTransfer = decodedTransfers.find(t => t.isStablecoin);
-  // Find non-stablecoin transfer (represents token amount)
-  const tokenTransfer = decodedTransfers.find(t => !t.isStablecoin);
-  
-  if (!stablecoinTransfer || !tokenTransfer) {
-    // Fallback: try to infer from available transfers
-    if (decodedTransfers.length >= 2) {
-      // Use first two transfers as token/stablecoin pair
-      const [first, second] = decodedTransfers;
-      const filledAmount = first.amount;
-      const totalValue = second.amount;
-      const executedPrice = filledAmount > 0 ? totalValue / filledAmount : 0;
-      
-      return {
-        success: true,
-        filledAmount,
-        executedPrice,
-        totalValue,
-        decodeMethod: 'two_transfer_fallback',
-        decodedLogs: decodedTransfers,
-      };
-    }
-    
+  // ---- Bot wallet (custodial single-EOA model) ----
+  const bot = receipt.from?.toLowerCase();
+  if (!bot) {
     return {
       success: false,
       filledAmount: 0,
       executedPrice: 0,
       totalValue: 0,
-      decodeMethod: 'incomplete',
+      decodeMethod: 'unknown',
       decodedLogs: decodedTransfers,
-      error: 'Could not identify stablecoin and token transfers',
+      error: 'no_bot_address_in_receipt',
     };
   }
-  
-  // Calculate filled amount and price based on side
-  // BUY: receiving token, paying stablecoin
-  // SELL: paying token, receiving stablecoin
+
+  // ---- Stablecoin transfer (USD value) ----
+  // BUY: stable sortant du bot. SELL: stable entrant au bot.
+  const stableCandidates = decodedTransfers.filter(t => t.isStablecoin);
+  const stablecoinTransfer = side === 'BUY'
+    ? (stableCandidates.find(t => t.from?.toLowerCase() === bot) ?? stableCandidates[0])
+    : (stableCandidates.findLast(t => t.to?.toLowerCase() === bot) ?? stableCandidates[stableCandidates.length - 1]);
+
+  // ---- Token transfer (filledAmount) ----
+  // BUY: dernier non-stable livré au bot. SELL: premier non-stable sortant du bot.
+  const nonStable = decodedTransfers.filter(t => !t.isStablecoin);
+  const tokenTransfer = side === 'BUY'
+    ? (nonStable.findLast(t => t.to?.toLowerCase() === bot) ?? nonStable[nonStable.length - 1])
+    : (nonStable.find(t => t.from?.toLowerCase() === bot) ?? nonStable[0]);
+
+  // ---- Coherence guard: tokenSymbol must match strategy symbol ----
+  // UNKNOWN toléré (KNOWN_TOKENS incomplet) — sinon fail-closed.
+  if (
+    tokenTransfer &&
+    tokenTransfer.tokenSymbol !== 'UNKNOWN' &&
+    tokenTransfer.tokenSymbol !== symbol
+  ) {
+    return {
+      success: false,
+      filledAmount: 0,
+      executedPrice: 0,
+      totalValue: 0,
+      decodeMethod: 'mismatch_reject',
+      decodedLogs: decodedTransfers,
+      error: `token_symbol_mismatch: expected ${symbol}, got ${tokenTransfer.tokenSymbol}`,
+    };
+  }
+
+  if (!stablecoinTransfer || !tokenTransfer) {
+    // Fallback durci : bot-match si possible, sinon fail-closed
+    if (decodedTransfers.length >= 2) {
+      const tokenFallback = side === 'BUY'
+        ? decodedTransfers.findLast(t => t.to?.toLowerCase() === bot)
+        : decodedTransfers.find(t => t.from?.toLowerCase() === bot);
+      const stableFallback = side === 'BUY'
+        ? decodedTransfers.find(t => t.from?.toLowerCase() === bot)
+        : decodedTransfers.findLast(t => t.to?.toLowerCase() === bot);
+
+      if (tokenFallback && stableFallback) {
+        const filledAmount = tokenFallback.amount;
+        const totalValue = stableFallback.amount;
+        const executedPrice = filledAmount > 0 ? totalValue / filledAmount : 0;
+        return {
+          success: true,
+          filledAmount,
+          executedPrice,
+          totalValue,
+          decodeMethod: 'bot_match_fallback',
+          decodedLogs: decodedTransfers,
+        };
+      }
+    }
+
+    return {
+      success: false,
+      filledAmount: 0,
+      executedPrice: 0,
+      totalValue: 0,
+      decodeMethod: 'unknown',
+      decodedLogs: decodedTransfers,
+      error: 'no_valid_transfer_pair',
+    };
+  }
+
   const filledAmount = tokenTransfer.amount;
   const totalValue = stablecoinTransfer.amount;
   const executedPrice = filledAmount > 0 ? totalValue / filledAmount : 0;
-  
+
   return {
     success: true,
     filledAmount,
