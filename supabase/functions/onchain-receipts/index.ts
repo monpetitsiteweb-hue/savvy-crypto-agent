@@ -277,6 +277,15 @@ function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): Deco
     };
   }
 
+  // ---- Symbol normalization (strategy symbol → on-chain ERC-20 symbol) ----
+  // Bot trades wrapped tokens on-chain (WETH, WBTC) but strategies are
+  // named after the native asset (ETH, BTC). Other symbols match by themselves.
+  const SYMBOL_ALIASES: Record<string, string> = {
+    ETH: 'WETH',
+    BTC: 'WBTC',
+  };
+  const expectedOnChainSymbol = SYMBOL_ALIASES[symbol] ?? symbol;
+
   // ---- Stablecoin transfer (USD value) ----
   // BUY: stable sortant du bot. SELL: stable entrant au bot.
   const stableCandidates = decodedTransfers.filter(t => t.isStablecoin);
@@ -296,7 +305,7 @@ function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): Deco
   if (
     tokenTransfer &&
     tokenTransfer.tokenSymbol !== 'UNKNOWN' &&
-    tokenTransfer.tokenSymbol !== symbol
+    tokenTransfer.tokenSymbol !== expectedOnChainSymbol
   ) {
     return {
       success: false,
@@ -305,7 +314,7 @@ function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): Deco
       totalValue: 0,
       decodeMethod: 'mismatch_reject',
       decodedLogs: decodedTransfers,
-      error: `token_symbol_mismatch: expected ${symbol}, got ${tokenTransfer.tokenSymbol}`,
+      error: `token_symbol_mismatch: expected ${expectedOnChainSymbol} (from ${symbol}), got ${tokenTransfer.tokenSymbol}`,
     };
   }
 
