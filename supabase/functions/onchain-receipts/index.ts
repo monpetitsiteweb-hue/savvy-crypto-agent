@@ -305,7 +305,7 @@ function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): Deco
   if (
     tokenTransfer &&
     tokenTransfer.tokenSymbol !== 'UNKNOWN' &&
-    tokenTransfer.tokenSymbol !== symbol
+    tokenTransfer.tokenSymbol !== expectedOnChainSymbol
   ) {
     return {
       success: false,
@@ -314,7 +314,7 @@ function decodeSwapFromReceipt(receipt: any, symbol: string, side: string): Deco
       totalValue: 0,
       decodeMethod: 'mismatch_reject',
       decodedLogs: decodedTransfers,
-      error: `token_symbol_mismatch: expected ${symbol}, got ${tokenTransfer.tokenSymbol}`,
+      error: `token_symbol_mismatch: expected ${expectedOnChainSymbol} (from ${symbol}), got ${tokenTransfer.tokenSymbol}`,
     };
   }
 
