@@ -151,6 +151,11 @@ export const UnifiedPortfolioDisplay = () => {
     const totalPnlPct = metrics.starting_capital_eur > 0
       ? (metrics.total_pnl_eur / metrics.starting_capital_eur) * 100
       : 0;
+    // Fix 1 (D7): in REAL mode, bind gas to RPC truth (metrics.total_gas_eur).
+    // TEST mode keeps the mock estimate (txCount × MOCK_GAS_PER_TX_EUR) from portfolioMath.
+    const gasSpentEur = testMode
+      ? portfolioValuation.gasSpentEur
+      : (metrics?.total_gas_eur ?? 0);
     return {
       cashEur: metrics.cash_balance_eur || 0,
       openPositionsValueEur: metrics.current_position_value_eur || 0,
@@ -159,10 +164,9 @@ export const UnifiedPortfolioDisplay = () => {
       realizedPnlEur: metrics.realized_pnl_eur || 0,
       totalPnlEur: metrics.total_pnl_eur || 0,
       totalPnlPct,
-      // Gas is not in RPC — kept from local computation (display-only)
-      gasSpentEur: portfolioValuation.gasSpentEur,
+      gasSpentEur,
     };
-  }, [metrics, portfolioValuation.gasSpentEur]);
+  }, [metrics, portfolioValuation.gasSpentEur, testMode]);
 
   // Wallet asset display (positions breakdown) — use effectivePrices to stay consistent with valuation
   // liveAggregates: Compute per-asset breakdown for BOTH TEST and REAL modes
