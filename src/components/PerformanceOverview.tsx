@@ -250,6 +250,8 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
   const lossRate = localMetrics.totalTrades > 0 
     ? ((localMetrics.losingTrades / localMetrics.totalTrades) * 100) 
     : 0;
+  const breakevenTrades = localMetrics.totalTrades - localMetrics.winningTrades - localMetrics.losingTrades;
+  const breakevenRate = localMetrics.totalTrades > 0 ? (breakevenTrades / localMetrics.totalTrades) * 100 : 0;
 
   return (
     <Card className={`bg-slate-800/50 border-slate-600 ${testMode ? "border-orange-500/20" : ""}`}>
