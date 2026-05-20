@@ -742,12 +742,6 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                 <span className="text-xs text-muted-foreground">Open Positions</span>
                 <span className="text-sm">{formatEuro(rpcTotals.openPositionsValueEur)}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Fuel className="h-3 w-3" /> Gas (est.)
-                </span>
-                <span className="text-sm text-amber-400">−{formatEuro(rpcTotals.gasSpentEur)}</span>
-              </div>
               <div className="flex justify-between items-center border-t pt-2">
                 <span className="text-xs text-muted-foreground font-medium">Total Value</span>
                 <span className="text-lg font-bold">{formatEuro(rpcTotals.totalPortfolioValueEur)}</span>
@@ -791,6 +785,12 @@ export function TradingHistory({ hasActiveStrategy, onCreateStrategy }: TradingH
                       <span className={`text-sm ${realPnl.colorClass}`}>
                         {realPnl.sign}{realPnl.value}
                       </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Fuel className="h-3 w-3" /> Gas (mock)
+                      </span>
+                      <span className="text-sm text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</span>
                     </div>
                     <div className="flex justify-between items-center border-t pt-2">
                       <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
