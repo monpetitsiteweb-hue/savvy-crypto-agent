@@ -417,7 +417,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
             SECTION 2 & 3: WINNING vs LOSING TRADES (side by side)
             "How good are my wins?" vs "How costly are my losses?"
         ═══════════════════════════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           
           {/* WINNING TRADES SECTION - Green accent */}
           <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-lg space-y-4">
@@ -469,6 +469,59 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
             
             <div className="text-xs text-green-400/50 text-center pt-1 border-t border-green-500/10">
               How good are my wins?
+            </div>
+          </div>
+
+          {/* BREAKEVEN TRADES SECTION - Slate/gray accent */}
+          <div className="p-4 bg-slate-500/5 border border-slate-500/20 rounded-lg space-y-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-400 border-b border-slate-500/20 pb-2">
+              <Percent className="h-4 w-4" />
+              Breakeven Trades
+            </div>
+            
+            <div className="grid grid-cols-3 gap-3">
+              {/* Breakeven Rate */}
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1 text-xs text-slate-400/70 mb-1">
+                  <Percent className="h-3 w-3" />
+                  % Breakeven
+                </div>
+                {loading ? (
+                  <div className="w-12 h-7 bg-slate-700/30 animate-pulse rounded mx-auto"></div>
+                ) : (
+                  <div className="text-xl font-bold text-slate-400">
+                    {breakevenRate.toFixed(1)}%
+                  </div>
+                )}
+              </div>
+              
+              {/* Number of Breakevens */}
+              <div className="text-center">
+                <div className="text-xs text-slate-400/70 mb-1">Count</div>
+                {loading ? (
+                  <div className="w-8 h-7 bg-slate-700/30 animate-pulse rounded mx-auto"></div>
+                ) : (
+                  <div className="text-xl font-bold text-slate-400">
+                    {breakevenTrades}
+                  </div>
+                )}
+              </div>
+              
+              {/* Average Breakeven Trade */}
+              <div className="text-center">
+                <div className="text-xs text-slate-400/70 mb-1">Avg</div>
+                {loading ? (
+                  <div className="w-14 h-7 bg-slate-700/30 animate-pulse rounded mx-auto"></div>
+                ) : (
+                  <div className="text-xl font-bold text-slate-400">
+                    {formatEuro(0)}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="text-xs text-slate-400/50 text-center pt-1 border-t border-slate-500/10">
+              Neither win nor loss
             </div>
           </div>
 
