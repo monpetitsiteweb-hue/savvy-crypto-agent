@@ -37,7 +37,13 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
   const { holdingsPrices } = useHoldingsPrices(openTrades);
   const { marketData } = useMarketData();
   const { metrics } = usePortfolioMetrics();
-  const { gasSpentEur } = useRealGasSpent();
+  const { isTestMode } = useTradingMode();
+  // Fix 4 (H2/H3/H11): align REAL counts with PerformanceOverview (accounted population).
+  const { ids: accountedIds } = useAccountedMockTradeIds(isTestMode);
+  const { rows: revertedRows } = useRevertedTrades(50);
+
+  // Fix 2 (H6): gas displayed here must match Dashboard + Performance (RPC truth).
+  const gasSpentEur = metrics?.total_gas_eur ?? 0;
   const { rows: revertedRows } = useRevertedTrades(50);
 
   if (!hasActiveStrategy) {
