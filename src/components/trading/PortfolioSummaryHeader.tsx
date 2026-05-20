@@ -91,9 +91,6 @@ export function PortfolioSummaryHeader({ data }: { data: PortfolioSummaryData })
             <span className="text-xs text-muted-foreground font-medium">Total Value</span>
             <span className="text-lg font-bold">{formatEuro(data.totalPortfolioValueEur)}</span>
           </div>
-            <span className="text-xs text-muted-foreground font-medium">Total Value</span>
-            <span className="text-lg font-bold">{formatEuro(data.totalPortfolioValueEur)}</span>
-          </div>
         </div>
       </Card>
 
