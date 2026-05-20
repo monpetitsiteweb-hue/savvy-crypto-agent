@@ -42,9 +42,9 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
   // Gate is SELL-scoped — never applied to BUYs (no BUY spec in fetchLocalMetrics).
   const {
     ids: accountedSellIds,
-    isLoading: accountedLoading,
     hasError: accountedError,
   } = useAccountedMockTradeIds(isTestMode);
+
   const { rows: revertedRows } = useRevertedTrades(50);
 
   // Fix 2 (H6): gas displayed here must match Dashboard + Performance (RPC truth).
