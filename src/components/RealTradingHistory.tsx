@@ -57,9 +57,10 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  // Confirmed-only counters for the header & tabs (REVERTED excluded from BUY count)
-  const confirmedBuys = trades.filter(t => t.side === 'BUY' && t.execution_status === 'CONFIRMED');
-  const confirmedSells = trades.filter(t => t.side === 'SELL' && t.execution_status === 'CONFIRMED');
+  // Confirmed-only counters for the header & tabs (REVERTED excluded from BUY count).
+  // Fix 4: use accountedTrades so counts match PerformanceOverview.
+  const confirmedBuys = accountedTrades.filter(t => t.side === 'BUY' && t.execution_status === 'CONFIRMED');
+  const confirmedSells = accountedTrades.filter(t => t.side === 'SELL' && t.execution_status === 'CONFIRMED');
 
   const effectivePrices: MarketPrices = useMemo(() => {
     const merged: MarketPrices = { ...(marketData as MarketPrices) };
