@@ -15,8 +15,9 @@ import { useOpenTrades } from '@/hooks/useOpenTrades';
 import { useHoldingsPrices } from '@/hooks/useHoldingsPrices';
 import { useMarketData } from '@/contexts/MarketDataContext';
 import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
-import { useRealGasSpent } from '@/hooks/useRealGasSpent';
 import { useRevertedTrades } from '@/hooks/useRevertedTrades';
+import { useAccountedMockTradeIds } from '@/hooks/useAccountedMockTradeIds';
+import { useTradingMode } from '@/hooks/useTradingMode';
 import { RealTradeHistoryTable } from '@/components/trading/RealTradeHistoryTable';
 import { RealPositionsTable } from '@/components/trading/RealPositionsTable';
 import { RevertedTradesTable } from '@/components/trading/RevertedTradesTable';
@@ -36,16 +37,30 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
   const { holdingsPrices } = useHoldingsPrices(openTrades);
   const { marketData } = useMarketData();
   const { metrics } = usePortfolioMetrics();
-  const { gasSpentEur } = useRealGasSpent();
+  const { isTestMode } = useTradingMode();
+  // Fix 4 (H2/H3/H11): align REAL counts with PerformanceOverview (accounted population).
+  const { ids: accountedIds } = useAccountedMockTradeIds(isTestMode);
   const { rows: revertedRows } = useRevertedTrades(50);
+
+  // Fix 2 (H6): gas displayed here must match Dashboard + Performance (RPC truth).
+  const gasSpentEur = metrics?.total_gas_eur ?? 0;
+
+  // Fix 4: filter trades to the accounted population (excludes corrupted /
+  // archived / SETTLED_NO_FIFO mock_trades). In TEST mode the gate is a no-op
+  // because trades come from mock_trades via the real_trade_history_view.
+  const accountedTrades = useMemo(() => {
+    if (!accountedIds) return trades;
+    return trades.filter(t => !t.mock_trade_id || accountedIds.has(t.mock_trade_id));
+  }, [trades, accountedIds]);
 
   if (!hasActiveStrategy) {
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  // Confirmed-only counters for the header & tabs (REVERTED excluded from BUY count)
-  const confirmedBuys = trades.filter(t => t.side === 'BUY' && t.execution_status === 'CONFIRMED');
-  const confirmedSells = trades.filter(t => t.side === 'SELL' && t.execution_status === 'CONFIRMED');
+  // Confirmed-only counters for the header & tabs (REVERTED excluded from BUY count).
+  // Fix 4: use accountedTrades so counts match PerformanceOverview.
+  const confirmedBuys = accountedTrades.filter(t => t.side === 'BUY' && t.execution_status === 'CONFIRMED');
+  const confirmedSells = accountedTrades.filter(t => t.side === 'SELL' && t.execution_status === 'CONFIRMED');
 
   const effectivePrices: MarketPrices = useMemo(() => {
     const merged: MarketPrices = { ...(marketData as MarketPrices) };

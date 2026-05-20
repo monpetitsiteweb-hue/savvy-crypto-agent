@@ -389,21 +389,23 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               )}
             </div>
 
-            {/* Gas (mock) */}
+            {/* Fix 3 (P5): Gas card — REAL = on-chain truth from RPC, TEST = mock estimate. */}
             <div className="p-3 bg-slate-700/30 rounded-lg">
               <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
                 <Fuel className="h-3.5 w-3.5" />
-                Gas (mock)
+                {testMode ? 'Gas (mock)' : 'Gas (on-chain)'}
               </div>
               {metricsLoading ? (
                 <div className="w-16 h-7 bg-slate-700 animate-pulse rounded"></div>
-              ) : (
+              ) : testMode ? (
                 <>
                   <div className="text-xl font-bold text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
                   <div className="text-xs text-slate-500">
                     €{MOCK_GAS_PER_TX_EUR.toFixed(2)} × {txCount} tx
                   </div>
                 </>
+              ) : (
+                <div className="text-xl font-bold text-amber-400">−{formatEuro(metrics?.total_gas_eur ?? 0)}</div>
               )}
             </div>
           </div>
