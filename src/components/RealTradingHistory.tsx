@@ -133,7 +133,12 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
             </TabsTrigger>
             <TabsTrigger value="sells" className="flex items-center gap-2">
               <ArrowDownLeft className="w-4 h-4" />
-              SELL Trades ({confirmedSells.length})
+              SELL Trades ({sellCountLabel})
+              {accountedError && (
+                <Badge variant="outline" className="text-[10px] ml-1 border-amber-500/40 text-amber-500">
+                  stale
+                </Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="reverted" className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4" />
@@ -150,7 +155,13 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
           </TabsContent>
 
           <TabsContent value="sells" className="mt-4">
-            {confirmedSells.length === 0 ? (
+            {confirmedSellsFiltered === null ? (
+              <Card className="p-6">
+                <div className="text-center text-muted-foreground animate-pulse">
+                  <p className="text-sm">Loading accounted SELL trades…</p>
+                </div>
+              </Card>
+            ) : confirmedSellsFiltered.length === 0 ? (
               <Card className="p-6">
                 <div className="text-center text-muted-foreground">
                   <p>No closed trades yet.</p>
@@ -159,12 +170,13 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
               </Card>
             ) : (
               <RealTradeHistoryTable
-                trades={confirmedSells}
+                trades={confirmedSellsFiltered}
                 isLoading={tradesLoading}
                 onRefresh={refreshTrades}
               />
             )}
           </TabsContent>
+
 
           <TabsContent value="reverted" className="mt-4">
             <RevertedTradesTable />
