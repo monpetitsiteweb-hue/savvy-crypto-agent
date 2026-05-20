@@ -46,6 +46,7 @@ const EMPTY_METRICS: PortfolioMetrics = {
   total_fees_eur: 0,
   total_buy_fees_eur: 0,
   total_sell_fees_eur: 0,
+  total_gas_eur: 0,
 };
 
 export function usePortfolioMetrics() {
