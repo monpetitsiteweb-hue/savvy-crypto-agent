@@ -21,6 +21,7 @@ export interface PortfolioMetrics {
   total_fees_eur: number;
   total_buy_fees_eur: number;
   total_sell_fees_eur: number;
+  total_gas_eur: number;
 }
 
 /**
