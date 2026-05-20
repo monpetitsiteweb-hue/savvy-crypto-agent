@@ -13,7 +13,8 @@ import { formatPnlWithSign } from '@/utils/portfolioMath';
 export interface PortfolioSummaryData {
   // Trade counts
   openPositions: number;
-  closedSells: number;
+  /** null while the accounted-SELL gate is loading; renders as "—". */
+  closedSells: number | null;
   totalBuyTrades: number;
   // Portfolio value
   cashEur: number;
@@ -52,7 +53,7 @@ export function PortfolioSummaryHeader({ data }: { data: PortfolioSummaryData })
           </div>
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted-foreground">Closed (SELL)</span>
-            <span className="text-sm">{data.closedSells}</span>
+            <span className="text-sm">{data.closedSells ?? '—'}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-xs text-muted-foreground">Total BUY Trades</span>

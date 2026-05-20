@@ -38,29 +38,37 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
   const { marketData } = useMarketData();
   const { metrics } = usePortfolioMetrics();
   const { isTestMode } = useTradingMode();
-  // Fix 4 (H2/H3/H11): align REAL counts with PerformanceOverview (accounted population).
-  const { ids: accountedIds } = useAccountedMockTradeIds(isTestMode);
+  // Fix 4 (H2/H3/H11): align REAL SELL counts with PerformanceOverview.
+  // Gate is SELL-scoped — never applied to BUYs (no BUY spec in fetchLocalMetrics).
+  const {
+    ids: accountedSellIds,
+    hasError: accountedError,
+  } = useAccountedMockTradeIds(isTestMode);
+
   const { rows: revertedRows } = useRevertedTrades(50);
 
   // Fix 2 (H6): gas displayed here must match Dashboard + Performance (RPC truth).
   const gasSpentEur = metrics?.total_gas_eur ?? 0;
 
-  // Fix 4: filter trades to the accounted population (excludes corrupted /
-  // archived / SETTLED_NO_FIFO mock_trades). In TEST mode the gate is a no-op
-  // because trades come from mock_trades via the real_trade_history_view.
-  const accountedTrades = useMemo(() => {
-    if (!accountedIds) return trades;
-    return trades.filter(t => !t.mock_trade_id || accountedIds.has(t.mock_trade_id));
-  }, [trades, accountedIds]);
-
   if (!hasActiveStrategy) {
     return <NoActiveStrategyState onCreateStrategy={onCreateStrategy} />;
   }
 
-  // Confirmed-only counters for the header & tabs (REVERTED excluded from BUY count).
-  // Fix 4: use accountedTrades so counts match PerformanceOverview.
-  const confirmedBuys = accountedTrades.filter(t => t.side === 'BUY' && t.execution_status === 'CONFIRMED');
-  const confirmedSells = accountedTrades.filter(t => t.side === 'SELL' && t.execution_status === 'CONFIRMED');
+  // BUY counts: always unfiltered (no spec for BUY in fetchLocalMetrics).
+  const confirmedBuys = trades.filter(t => t.side === 'BUY' && t.execution_status === 'CONFIRMED');
+  const allConfirmedSells = trades.filter(t => t.side === 'SELL' && t.execution_status === 'CONFIRMED');
+
+  // SELL gate behaviour:
+  //  - loading (ids === null && !hasError): expose null → UI shows "—" skeleton
+  //  - hasError: fall back to UNFILTERED allConfirmedSells + stale badge
+  //  - normal: filter by accounted SELL ids; rows without mock_trade_id pass
+  const confirmedSellsFiltered: typeof allConfirmedSells | null =
+    accountedSellIds === null
+      ? (accountedError ? allConfirmedSells : null)
+      : allConfirmedSells.filter(t => !t.mock_trade_id || accountedSellIds.has(t.mock_trade_id));
+
+  const sellCount: number | null = confirmedSellsFiltered === null ? null : confirmedSellsFiltered.length;
+  const sellCountLabel = sellCount === null ? '—' : String(sellCount);
 
   const effectivePrices: MarketPrices = useMemo(() => {
     const merged: MarketPrices = { ...(marketData as MarketPrices) };
@@ -88,7 +96,7 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
 
     return {
       openPositions: openTrades.length,
-      closedSells: confirmedSells.length,
+      closedSells: sellCount,
       totalBuyTrades: confirmedBuys.length,
       cashEur,
       openPositionsValueEur,
@@ -102,7 +110,8 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
       missingSymbols: openCalc.missingSymbols,
       gasLabel: 'Gas (on-chain)',
     };
-  }, [metrics, openCalc, gasSpentEur, openTrades.length, confirmedSells.length, confirmedBuys.length]);
+  }, [metrics, openCalc, gasSpentEur, openTrades.length, sellCount, confirmedBuys.length]);
+
 
   return (
     <div className="space-y-4">
@@ -124,7 +133,12 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
             </TabsTrigger>
             <TabsTrigger value="sells" className="flex items-center gap-2">
               <ArrowDownLeft className="w-4 h-4" />
-              SELL Trades ({confirmedSells.length})
+              SELL Trades ({sellCountLabel})
+              {accountedError && (
+                <Badge variant="outline" className="text-[10px] ml-1 border-amber-500/40 text-amber-500">
+                  stale
+                </Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="reverted" className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4" />
@@ -141,7 +155,13 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
           </TabsContent>
 
           <TabsContent value="sells" className="mt-4">
-            {confirmedSells.length === 0 ? (
+            {confirmedSellsFiltered === null ? (
+              <Card className="p-6">
+                <div className="text-center text-muted-foreground animate-pulse">
+                  <p className="text-sm">Loading accounted SELL trades…</p>
+                </div>
+              </Card>
+            ) : confirmedSellsFiltered.length === 0 ? (
               <Card className="p-6">
                 <div className="text-center text-muted-foreground">
                   <p>No closed trades yet.</p>
@@ -150,12 +170,13 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
               </Card>
             ) : (
               <RealTradeHistoryTable
-                trades={confirmedSells}
+                trades={confirmedSellsFiltered}
                 isLoading={tradesLoading}
                 onRefresh={refreshTrades}
               />
             )}
           </TabsContent>
+
 
           <TabsContent value="reverted" className="mt-4">
             <RevertedTradesTable />
