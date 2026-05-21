@@ -308,7 +308,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
             Overall Performance
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Total Closed Trades */}
             <div className="p-3 bg-slate-700/30 rounded-lg">
               <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
@@ -322,7 +322,7 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
               )}
             </div>
 
-            {/* Total P&L */}
+            {/* Total P&L — bound to RPC (accounting invariant = portfolio_value − starting_capital) */}
             <div className="p-3 bg-slate-700/30 rounded-lg">
               <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
                 <DollarSign className="h-3.5 w-3.5" />
@@ -390,28 +390,9 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
                 })()
               )}
             </div>
-
-            {/* Fix 3 (P5): Gas card — REAL = on-chain truth from RPC, TEST = mock estimate. */}
-            <div className="p-3 bg-slate-700/30 rounded-lg">
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1">
-                <Fuel className="h-3.5 w-3.5" />
-                {testMode ? 'Gas (mock)' : 'Gas (on-chain)'}
-              </div>
-              {metricsLoading ? (
-                <div className="w-16 h-7 bg-slate-700 animate-pulse rounded"></div>
-              ) : testMode ? (
-                <>
-                  <div className="text-xl font-bold text-amber-400">−{formatEuro(portfolioValuation.gasSpentEur)}</div>
-                  <div className="text-xs text-slate-500">
-                    €{MOCK_GAS_PER_TX_EUR.toFixed(2)} × {txCount} tx
-                  </div>
-                </>
-              ) : (
-                <div className="text-xl font-bold text-amber-400">−{formatEuro(metrics?.total_gas_eur ?? 0)}</div>
-              )}
-            </div>
           </div>
         </div>
+
 
         {/* ═══════════════════════════════════════════════════════════════════════
             SECTION 2 & 3: WINNING vs LOSING TRADES (side by side)
