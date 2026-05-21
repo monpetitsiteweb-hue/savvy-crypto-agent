@@ -147,7 +147,7 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
             </TabsTrigger>
             <TabsTrigger value="sells" className="flex items-center gap-2">
               <ArrowDownLeft className="w-4 h-4" />
-              SELL Trades ({sellCountLabel})
+              SELL Trades ({liveSellLoading && liveSellTrades.length === 0 ? '—' : liveSellTrades.length})
               {accountedError && (
                 <Badge variant="outline" className="text-[10px] ml-1 border-amber-500/40 text-amber-500">
                   stale
