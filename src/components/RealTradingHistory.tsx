@@ -18,9 +18,10 @@ import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { useRevertedTrades } from '@/hooks/useRevertedTrades';
 import { useAccountedMockTradeIds } from '@/hooks/useAccountedMockTradeIds';
 import { useTradingMode } from '@/hooks/useTradingMode';
-import { RealTradeHistoryTable } from '@/components/trading/RealTradeHistoryTable';
 import { RealPositionsTable } from '@/components/trading/RealPositionsTable';
 import { RevertedTradesTable } from '@/components/trading/RevertedTradesTable';
+import { LiveSellTradeCard } from '@/components/trading/LiveSellTradeCard';
+import { useLiveSellTrades } from '@/hooks/useLiveSellTrades';
 import { PortfolioSummaryHeader, type PortfolioSummaryData } from '@/components/trading/PortfolioSummaryHeader';
 import { NoActiveStrategyState } from '@/components/NoActiveStrategyState';
 import { computeOpenTradesValueEur, type MarketPrices } from '@/utils/portfolioMath';
@@ -31,7 +32,7 @@ interface RealTradingHistoryProps {
 }
 
 export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: RealTradingHistoryProps) {
-  const { trades, isLoading: tradesLoading, refresh: refreshTrades } = useRealTradeHistory();
+  const { trades } = useRealTradeHistory();
   const { positions, isLoading: positionsLoading, refresh: refreshPositions } = useRealPositions();
   const { openTrades } = useOpenTrades();
   const { holdingsPrices } = useHoldingsPrices(openTrades);
@@ -46,6 +47,18 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
   } = useAccountedMockTradeIds(isTestMode);
 
   const { rows: revertedRows } = useRevertedTrades(50);
+
+  // LIVE SELL cards: mock_trades-backed, gated, visually aligned with TEST.
+  const { trades: liveSellTrades, isLoading: liveSellLoading } = useLiveSellTrades();
+
+  // tx_hash lookup: from existing useRealTradeHistory result; no new query.
+  const txHashLookup = useMemo(() => {
+    const m = new Map<string, string>();
+    trades.forEach(rt => {
+      if (rt.mock_trade_id && rt.tx_hash) m.set(rt.mock_trade_id, rt.tx_hash);
+    });
+    return m;
+  }, [trades]);
 
   // Fix 2 (H6): gas displayed here must match Dashboard + Performance (RPC truth).
   const gasSpentEur = metrics?.total_gas_eur ?? 0;
@@ -133,7 +146,7 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
             </TabsTrigger>
             <TabsTrigger value="sells" className="flex items-center gap-2">
               <ArrowDownLeft className="w-4 h-4" />
-              SELL Trades ({sellCountLabel})
+              SELL Trades ({liveSellLoading && liveSellTrades.length === 0 ? '—' : liveSellTrades.length})
               {accountedError && (
                 <Badge variant="outline" className="text-[10px] ml-1 border-amber-500/40 text-amber-500">
                   stale
@@ -155,25 +168,25 @@ export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: Real
           </TabsContent>
 
           <TabsContent value="sells" className="mt-4">
-            {confirmedSellsFiltered === null ? (
+            {liveSellLoading && liveSellTrades.length === 0 ? (
               <Card className="p-6">
                 <div className="text-center text-muted-foreground animate-pulse">
                   <p className="text-sm">Loading accounted SELL trades…</p>
                 </div>
               </Card>
-            ) : confirmedSellsFiltered.length === 0 ? (
+            ) : liveSellTrades.length === 0 ? (
               <Card className="p-6">
                 <div className="text-center text-muted-foreground">
-                  <p>No closed trades yet.</p>
+                  <p>No SELL trades yet.</p>
                   <p className="text-sm mt-1">Confirmed SELL trades will appear here with realized P&L.</p>
                 </div>
               </Card>
             ) : (
-              <RealTradeHistoryTable
-                trades={confirmedSellsFiltered}
-                isLoading={tradesLoading}
-                onRefresh={refreshTrades}
-              />
+              <div className="space-y-3">
+                {liveSellTrades.map(t => (
+                  <LiveSellTradeCard key={t.id} trade={t} txHashLookup={txHashLookup} />
+                ))}
+              </div>
             )}
           </TabsContent>
 
