@@ -768,7 +768,6 @@ export const UnifiedPortfolioDisplay = () => {
                 {(() => {
                   const cash = rpcTotals.cashEur;
                   const invested = rpcTotals.openPositionsValueEur;
-                  const gas = rpcTotals.gasSpentEur;
                   const total = cash + invested;
                   
                   const cashPct = total > 0 ? (cash / total) * 100 : 100;
@@ -813,7 +812,7 @@ export const UnifiedPortfolioDisplay = () => {
                         )}
                       </div>
                       
-                      {/* Legend with values */}
+                      {/* Legend with values — PR B20 Fix 2: Gas removed (informational only, not an asset bucket) */}
                       <div className="flex flex-col justify-center gap-2 text-xs">
                         <TooltipProvider>
                           <Tooltip>
@@ -853,27 +852,11 @@ export const UnifiedPortfolioDisplay = () => {
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
-                        
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <div className="flex items-center gap-2 cursor-help">
-                                <Fuel className="w-3 h-3 text-amber-400" />
-                                <div>
-                                  <span className="text-slate-400">Costs (gas)</span>
-                                  <div className="font-semibold text-amber-400">−{formatEuro(gas)}</div>
-                                </div>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p className="text-xs">Estimated transaction costs.</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
                       </div>
                     </div>
                   );
                 })()}
+
               </div>
               
             </div>
