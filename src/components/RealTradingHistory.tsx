@@ -21,6 +21,8 @@ import { useTradingMode } from '@/hooks/useTradingMode';
 import { RealTradeHistoryTable } from '@/components/trading/RealTradeHistoryTable';
 import { RealPositionsTable } from '@/components/trading/RealPositionsTable';
 import { RevertedTradesTable } from '@/components/trading/RevertedTradesTable';
+import { LiveSellTradeCard } from '@/components/trading/LiveSellTradeCard';
+import { useLiveSellTrades } from '@/hooks/useLiveSellTrades';
 import { PortfolioSummaryHeader, type PortfolioSummaryData } from '@/components/trading/PortfolioSummaryHeader';
 import { NoActiveStrategyState } from '@/components/NoActiveStrategyState';
 import { computeOpenTradesValueEur, type MarketPrices } from '@/utils/portfolioMath';
