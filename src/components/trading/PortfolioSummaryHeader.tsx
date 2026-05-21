@@ -113,13 +113,8 @@ export function PortfolioSummaryHeader({ data }: { data: PortfolioSummaryData })
               {realPnl.sign}{realPnl.value}
             </span>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Fuel className="h-3 w-3" /> {gasLabel}
-            </span>
-            <span className="text-sm text-amber-400">−{formatEuro(data.gasSpentEur)}</span>
-          </div>
           <div className="flex justify-between items-center border-t pt-2">
+
             <span className="text-xs text-muted-foreground font-medium">Total P&L</span>
             <span className={`text-sm font-semibold ${totalPnl.colorClass}`}>
               {totalPnl.sign}{totalPnl.value} ({formatPercentage(data.totalPnlPct)}) — {totalPnl.label}
