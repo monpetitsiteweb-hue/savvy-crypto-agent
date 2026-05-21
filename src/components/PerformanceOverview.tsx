@@ -560,29 +560,45 @@ export const PerformanceOverview = ({ hasActiveStrategy, onCreateStrategy }: Per
           </div>
         </div>
 
-        {/* Total Fees - compact footer */}
+        {/* PR B20 Fix 4b: Cost Metrics — informational only.
+            Gas is already deducted from cash at swap time and therefore already
+            reflected in Total P&L. Shown here for visibility, NOT to be added
+            or subtracted again. "Total Fees" row removed (redundant + confusing). */}
         <div className="p-3 bg-slate-700/20 rounded-lg border border-slate-700/50">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 text-sm text-slate-400">
-              <DollarSign className="h-4 w-4" />
-              Total Fees
+              <Fuel className="h-4 w-4" />
+              Cost Metrics
+              <span className="text-xs text-slate-500 font-normal">
+                (already included in Total P&L)
+              </span>
             </div>
-            <div className="text-right">
-              {metricsLoading ? (
-                <div className="w-16 h-5 bg-slate-700 animate-pulse rounded"></div>
-              ) : (
-                <>
-                  <div className="text-sm font-medium text-slate-300">
-                    {formatEuro(metrics.total_fees_eur)}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    Buy: {formatEuro(metrics.total_buy_fees_eur)} / Sell: {formatEuro(metrics.total_sell_fees_eur)}
-                  </div>
-                </>
-              )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertTriangle className="h-3.5 w-3.5 text-slate-500 cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs">
+                <p className="text-xs">
+                  Blockchain transaction costs already deducted from your cash
+                  balance at swap time. Shown here for visibility.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="flex items-center justify-between pt-2 border-t border-slate-700/40">
+            <div className="text-sm text-slate-400">
+              {testMode ? 'Gas (mock)' : 'Gas (on-chain)'}
             </div>
+            {metricsLoading ? (
+              <div className="w-16 h-5 bg-slate-700 animate-pulse rounded"></div>
+            ) : (
+              <div className="text-sm font-medium text-slate-300">
+                −{formatEuro(testMode ? portfolioValuation.gasSpentEur : (metrics?.total_gas_eur ?? 0))}
+              </div>
+            )}
           </div>
         </div>
+
 
         {/* ═══════════════════════════════════════════════════════════════════════
             SECTION 4: CAPITAL & PERFORMANCE CONTEXT
