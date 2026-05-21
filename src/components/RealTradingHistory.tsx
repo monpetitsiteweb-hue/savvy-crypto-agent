@@ -18,7 +18,6 @@ import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { useRevertedTrades } from '@/hooks/useRevertedTrades';
 import { useAccountedMockTradeIds } from '@/hooks/useAccountedMockTradeIds';
 import { useTradingMode } from '@/hooks/useTradingMode';
-import { RealTradeHistoryTable } from '@/components/trading/RealTradeHistoryTable';
 import { RealPositionsTable } from '@/components/trading/RealPositionsTable';
 import { RevertedTradesTable } from '@/components/trading/RevertedTradesTable';
 import { LiveSellTradeCard } from '@/components/trading/LiveSellTradeCard';
@@ -33,7 +32,7 @@ interface RealTradingHistoryProps {
 }
 
 export function RealTradingHistory({ hasActiveStrategy, onCreateStrategy }: RealTradingHistoryProps) {
-  const { trades, isLoading: tradesLoading, refresh: refreshTrades } = useRealTradeHistory();
+  const { trades } = useRealTradeHistory();
   const { positions, isLoading: positionsLoading, refresh: refreshPositions } = useRealPositions();
   const { openTrades } = useOpenTrades();
   const { holdingsPrices } = useHoldingsPrices(openTrades);
