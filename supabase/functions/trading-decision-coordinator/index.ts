@@ -4241,6 +4241,10 @@ serve(async (req) => {
               error: execError.message,
               request_id: requestId,
               fast_path: "AUTOMATED_INTELLIGENT",
+              ml_shadow: intent.metadata?.ml_shadow ?? null,
+              ml_signal_threshold: intent.metadata?.ml_shadow?.ml_signal_threshold ?? null,
+              ensemble_prob: intent.metadata?.ml_shadow?.ensemble_prob ?? null,
+              intent_reason: intent.reason ?? null,
             }, false),
           }).select("id");
           await writeSnapshotForDirectInsert(supabaseClient, _diAutoExecFail?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, "DEFER", "automated_execution_failed", false);
@@ -4292,6 +4296,10 @@ serve(async (req) => {
             amount: tradeAmount,
             slippage_bps: slippageBps,
             request_id: requestId,
+            ml_shadow: intent.metadata?.ml_shadow ?? null,
+            ml_signal_threshold: intent.metadata?.ml_shadow?.ml_signal_threshold ?? null,
+            ensemble_prob: intent.metadata?.ml_shadow?.ensemble_prob ?? null,
+            intent_reason: intent.reason ?? null,
           }, false),
         }).select("id");
         await writeSnapshotForDirectInsert(supabaseClient, _diAutoExecOk?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, intent.side, "real_execution_synchronous", false);
