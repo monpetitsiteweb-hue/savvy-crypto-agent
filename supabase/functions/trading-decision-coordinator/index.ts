@@ -4241,6 +4241,10 @@ serve(async (req) => {
               error: execError.message,
               request_id: requestId,
               fast_path: "AUTOMATED_INTELLIGENT",
+              ml_shadow: intent.metadata?.ml_shadow ?? null,
+              ml_signal_threshold: intent.metadata?.ml_shadow?.ml_signal_threshold ?? null,
+              ensemble_prob: intent.metadata?.ml_shadow?.ensemble_prob ?? null,
+              intent_reason: intent.reason ?? null,
             }, false),
           }).select("id");
           await writeSnapshotForDirectInsert(supabaseClient, _diAutoExecFail?.[0]?.id, intent.userId, intent.strategyId, baseSymbol, intent.side, "DEFER", "automated_execution_failed", false);
