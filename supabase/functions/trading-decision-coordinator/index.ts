@@ -4017,6 +4017,123 @@ serve(async (req) => {
         }
         // ============= END B16 STRICT GUARD =============
 
+        // ============= B5 + B2 GUARDS: pre-execution inventory checks (AUTOMATED_INTELLIGENT) =============
+        // Mirrors the manual_sell_fastpath (L2849) and tp_fastpath (L9408) wiring.
+        // Fixes the orphan-SELL bypass that produced fa7b5396 (2026-05-20).
+        // SELL-only; BUYs skip these guards.
+        if (!isBuySide) {
+          // --- B5: parent BUY validity ---
+          try {
+            await assertParentValid(supabaseClient, originalTradeId, tradeAmount, 'L4019_automated_intelligent');
+          } catch (b5err) {
+            console.log('[COORD][AUTO_INTEL][B5_BLOCK]', {
+              userId: intent.userId,
+              strategyId: intent.strategyId,
+              symbol: baseSymbol,
+              parentId: originalTradeId,
+              sellQty: tradeAmount,
+              error: String((b5err as any)?.message || b5err),
+              request_id: requestId,
+            });
+            await logB5Block(supabaseClient, intent, baseSymbol, 'automated_intelligent', originalTradeId, tradeAmount, b5err);
+            // Override reason to the spec-mandated value
+            try {
+              await supabaseClient.from('decision_events').insert({
+                user_id: intent.userId,
+                strategy_id: intent.strategyId,
+                symbol: baseSymbol,
+                side: 'SELL',
+                source: intent.source ?? 'coordinator.automated_intelligent',
+                reason: 'blocked_parent_invalid_automated_intelligent',
+                decision_ts: new Date().toISOString(),
+                metadata: {
+                  blocked: true,
+                  b5_guard: true,
+                  context: 'automated_intelligent',
+                  parent_validity_check: {
+                    parentId: originalTradeId ?? null,
+                    sellQty: tradeAmount,
+                    error_message: String((b5err as any)?.message || b5err),
+                  },
+                  request_id: requestId,
+                },
+              });
+            } catch (logErr) {
+              console.error('[COORD][AUTO_INTEL][B5_BLOCK] failed to log canonical reason', logErr);
+            }
+            return new Response(
+              JSON.stringify({
+                ok: false,
+                success: false,
+                error: 'b5_guard_blocked',
+                decision: {
+                  action: 'DEFER',
+                  reason: 'blocked_parent_invalid_automated_intelligent',
+                  request_id: requestId,
+                  message: String((b5err as any)?.message || b5err),
+                },
+              }),
+              { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+            );
+          }
+
+          // --- B2: pre-emission inventory check ---
+          try {
+            const _b2 = await assertSufficientInventory(
+              supabaseClient, intent.userId, intent.strategyId, baseSymbol, tradeAmount,
+              'automated_intelligent',
+            );
+            console.log(`✅ [B2_GUARD] automated_intelligent: avail=${_b2.availableQty} requested=${tradeAmount}`);
+          } catch (b2err) {
+            const _avail = (b2err as any)?.availableQty ?? null;
+            console.log('[COORD][AUTO_INTEL][B2_BLOCK]', {
+              userId: intent.userId,
+              strategyId: intent.strategyId,
+              symbol: baseSymbol,
+              qty_requested: tradeAmount,
+              available_qty: _avail,
+              deficit: parseB2Deficit(b2err),
+              error: String((b2err as any)?.message || b2err),
+              request_id: requestId,
+            });
+            await supabaseClient.from('decision_events').insert({
+              user_id: intent.userId,
+              strategy_id: intent.strategyId,
+              symbol: baseSymbol,
+              side: 'SELL',
+              source: intent.source ?? 'coordinator.automated_intelligent',
+              reason: 'blocked_insufficient_inventory_automated_intelligent',
+              decision_ts: new Date().toISOString(),
+              metadata: {
+                blocked: true,
+                qty_requested: tradeAmount,
+                available_qty: _avail,
+                deficit: parseB2Deficit(b2err),
+                context: 'automated_intelligent',
+                symbol: baseSymbol,
+                request_id: requestId,
+                error: String((b2err as any)?.message || b2err),
+              },
+            });
+            return new Response(
+              JSON.stringify({
+                ok: false,
+                success: false,
+                error: 'insufficient_inventory',
+                decision: {
+                  action: 'DEFER',
+                  reason: 'blocked_insufficient_inventory_automated_intelligent',
+                  request_id: requestId,
+                  qty_requested: tradeAmount,
+                  message: String((b2err as any)?.message || b2err),
+                },
+              }),
+              { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+            );
+          }
+        }
+        // ============= END B5 + B2 GUARDS (AUTOMATED_INTELLIGENT) =============
+
         const placeholderRecord = {
           id: mockTradeId,
           user_id: intent.userId,
