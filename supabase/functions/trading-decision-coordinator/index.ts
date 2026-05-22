@@ -4036,31 +4036,6 @@ serve(async (req) => {
               request_id: requestId,
             });
             await logB5Block(supabaseClient, intent, baseSymbol, 'automated_intelligent', originalTradeId, tradeAmount, b5err);
-            // Override reason to the spec-mandated value
-            try {
-              await supabaseClient.from('decision_events').insert({
-                user_id: intent.userId,
-                strategy_id: intent.strategyId,
-                symbol: baseSymbol,
-                side: 'SELL',
-                source: intent.source ?? 'coordinator.automated_intelligent',
-                reason: 'blocked_parent_invalid_automated_intelligent',
-                decision_ts: new Date().toISOString(),
-                metadata: {
-                  blocked: true,
-                  b5_guard: true,
-                  context: 'automated_intelligent',
-                  parent_validity_check: {
-                    parentId: originalTradeId ?? null,
-                    sellQty: tradeAmount,
-                    error_message: String((b5err as any)?.message || b5err),
-                  },
-                  request_id: requestId,
-                },
-              });
-            } catch (logErr) {
-              console.error('[COORD][AUTO_INTEL][B5_BLOCK] failed to log canonical reason', logErr);
-            }
             return new Response(
               JSON.stringify({
                 ok: false,
