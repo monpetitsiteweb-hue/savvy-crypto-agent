@@ -3482,9 +3482,15 @@ serve(async (req) => {
       // For system_operator_mode OR automated intelligent trades: skip user wallet checks (uses SYSTEM wallet)
       // Phase 2: Deprecated check - now derived from execClass.isSystemOperator
       const isAutomatedIntelligent = intent.source === "intelligent";
+      // Custodial fallback: manual REAL intent without per-user execution_wallets row
+      // routes through SYSTEM wallet (BOT_ADDRESS). See custodial-exchange-model-core.
+      const isManualCustodialFallback =
+        intent.source === "manual" && execClass.target === "REAL" && !hasWalletId;
 
-      if (isSystemOperatorMode || isAutomatedIntelligent) {
-        const skipLabel = isSystemOperatorMode ? "system_operator_mode" : "automated_intelligent";
+      if (isSystemOperatorMode || isAutomatedIntelligent || isManualCustodialFallback) {
+        const skipLabel = isSystemOperatorMode ? "system_operator_mode"
+          : isAutomatedIntelligent ? "automated_intelligent"
+          : "manual_custodial_fallback";
         console.log(`🔧 COORDINATOR: ${skipLabel} - skipping user wallet prerequisite checks (uses SYSTEM wallet)`);
       } else {
         // Check live trading prerequisites via RPC (for regular manual trades)
