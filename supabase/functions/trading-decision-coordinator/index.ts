@@ -4591,14 +4591,10 @@ serve(async (req) => {
     }
     // ============= END STATE/POLICY ENFORCEMENT =============
 
-    // FIX: Read unifiedConfig from configuration JSON, not from non-existent column
-    const unifiedConfig: UnifiedConfig = strategy.configuration?.unifiedConfig || {
-      enableUnifiedDecisions: false,
-      minHoldPeriodMs: 120000,
-      cooldownBetweenOppositeActionsMs: 30000,
-      confidenceOverrideThreshold: 0.7,
-    };
-    console.log(`[COORD] unifiedConfig resolved: enableUnifiedDecisions=${unifiedConfig.enableUnifiedDecisions} (source=${strategy.configuration?.unifiedConfig ? 'configuration.unifiedConfig' : 'default_fallback'})`);
+    // NOTE: unifiedConfig is now declared earlier (hoisted ~L3315) so it is available
+    // to the AUTOMATED_INTELLIGENT BUY pre-gate in the REAL execution branch.
+    // The original declaration that used to live here has been removed.
+
 
     // ============= ML/TREND BYPASS: skip fusion & confidence gates for engine-driven intents =============
     const isMlSignalBuy = intent.reason === 'ml_signal_buy';
