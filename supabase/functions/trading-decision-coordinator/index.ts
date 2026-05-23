@@ -3621,7 +3621,7 @@ serve(async (req) => {
       // onchain-sign-and-send internally handles: quote → build → sign → broadcast
       // This ensures ONE execution path for both MANUAL and future AUTO trades.
       // =============================================================================
-      if (intent.source === "manual" && hasWalletId) {
+      if (intent.source === "manual" && execClass.target === "REAL") {
         const modeLabel = isSystemOperatorMode ? "SYSTEM_OPERATOR" : "MANUAL";
         console.log(`🚀 COORDINATOR: ${modeLabel} FAST-PATH - calling onchain-sign-and-send`);
         
