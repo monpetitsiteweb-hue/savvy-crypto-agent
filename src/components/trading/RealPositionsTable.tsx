@@ -101,15 +101,6 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
   const handleDirectSell = async () => {
     if (!sellConfirmation || !user) return;
 
-    if (!executionWallet) {
-      toast({
-        title: 'No active execution wallet',
-        description: 'A funded execution wallet is required to submit a REAL SELL.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setSubmitting(true);
     try {
       const trade = sellConfirmation;
@@ -125,8 +116,10 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
           force: false,
           metadata: {
             originalTradeId: trade.id,
-            execution_wallet_id: executionWallet.id,
-            wallet_address: executionWallet.wallet_address,
+            ...(executionWallet ? {
+              execution_wallet_id: executionWallet.id,
+              wallet_address: executionWallet.wallet_address,
+            } : {}),
             slippage_bps: 100,
           },
         },
@@ -251,7 +244,7 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
                 <span className="font-mono text-xs">
                   {executionWallet
                     ? `${executionWallet.wallet_address.slice(0, 6)}…${executionWallet.wallet_address.slice(-4)}`
-                    : '— none —'}
+                    : 'System Wallet (admin custody)'}
                 </span>
               </div>
             </div>
@@ -267,7 +260,7 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
             </Button>
             <Button
               onClick={handleDirectSell}
-              disabled={submitting || !executionWallet}
+              disabled={submitting}
             >
               {submitting ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Submitting…</>

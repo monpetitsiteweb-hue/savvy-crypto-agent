@@ -3482,9 +3482,15 @@ serve(async (req) => {
       // For system_operator_mode OR automated intelligent trades: skip user wallet checks (uses SYSTEM wallet)
       // Phase 2: Deprecated check - now derived from execClass.isSystemOperator
       const isAutomatedIntelligent = intent.source === "intelligent";
+      // Custodial fallback: manual REAL intent without per-user execution_wallets row
+      // routes through SYSTEM wallet (BOT_ADDRESS). See custodial-exchange-model-core.
+      const isManualCustodialFallback =
+        intent.source === "manual" && execClass.target === "REAL" && !hasWalletId;
 
-      if (isSystemOperatorMode || isAutomatedIntelligent) {
-        const skipLabel = isSystemOperatorMode ? "system_operator_mode" : "automated_intelligent";
+      if (isSystemOperatorMode || isAutomatedIntelligent || isManualCustodialFallback) {
+        const skipLabel = isSystemOperatorMode ? "system_operator_mode"
+          : isAutomatedIntelligent ? "automated_intelligent"
+          : "manual_custodial_fallback";
         console.log(`🔧 COORDINATOR: ${skipLabel} - skipping user wallet prerequisite checks (uses SYSTEM wallet)`);
       } else {
         // Check live trading prerequisites via RPC (for regular manual trades)
@@ -3565,11 +3571,14 @@ serve(async (req) => {
       // Get wallet address - for system_operator_mode use metadata or skip user lookup
       let walletAddress: string;
       
-      if (isSystemOperatorMode || isAutomatedIntelligent) {
-        // System operator and automated intelligent trades use BOT_ADDRESS (SYSTEM wallet)
-        // The actual signing happens in onchain-sign-and-send which reads BOT_ADDRESS
+      if (isSystemOperatorMode || isAutomatedIntelligent || isManualCustodialFallback) {
+        // System operator, automated intelligent, and manual custodial fallback trades
+        // use BOT_ADDRESS (SYSTEM wallet). The actual signing happens in
+        // onchain-sign-and-send which reads BOT_ADDRESS.
         walletAddress = intent.metadata?.wallet_address || "SYSTEM_WALLET";
-        const walletLabel = isSystemOperatorMode ? "system_operator_mode" : "automated_intelligent";
+        const walletLabel = isSystemOperatorMode ? "system_operator_mode"
+          : isAutomatedIntelligent ? "automated_intelligent"
+          : "manual_custodial_fallback";
         console.log(`🔧 COORDINATOR: ${walletLabel} - using SYSTEM wallet for execution`);
       } else {
         // Regular manual trades - fetch user's execution wallet
@@ -3612,7 +3621,7 @@ serve(async (req) => {
       // onchain-sign-and-send internally handles: quote → build → sign → broadcast
       // This ensures ONE execution path for both MANUAL and future AUTO trades.
       // =============================================================================
-      if (intent.source === "manual" && hasWalletId) {
+      if (intent.source === "manual" && execClass.target === "REAL") {
         const modeLabel = isSystemOperatorMode ? "SYSTEM_OPERATOR" : "MANUAL";
         console.log(`🚀 COORDINATOR: ${modeLabel} FAST-PATH - calling onchain-sign-and-send`);
         
@@ -3670,13 +3679,122 @@ serve(async (req) => {
         const PROJECT_URL = Deno.env.get("SB_URL") || Deno.env.get("SUPABASE_URL");
         const SERVICE_ROLE = Deno.env.get("SB_SERVICE_ROLE") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
+        const isBuySide = intent.side.toLowerCase() === "buy";
+
+        // ============= B16 / B5 / B2 GUARDS for manual REAL fast-path =============
+        // Mirrors AUTOMATED_INTELLIGENT wiring at L4066–4201. Applies to BOTH the
+        // per-user wallet path and the SYSTEM_WALLET custodial fallback path.
+        const originalTradeId = !isBuySide && typeof intent.metadata?.originalTradeId === 'string'
+          ? intent.metadata.originalTradeId
+          : null;
+
+        if (!isBuySide && !originalTradeId) {
+          console.error('❌ COORDINATOR: manual SELL rejected — missing originalTradeId', {
+            userId: intent.userId, symbol: baseSymbol, source: intent.source,
+          });
+          try {
+            await supabaseClient.from('decision_events').insert({
+              user_id: intent.userId,
+              strategy_id: intent.strategyId,
+              symbol: baseSymbol,
+              side: 'SELL',
+              source: intent.source ?? 'manual',
+              reason: 'sell_without_parent_blocked',
+              metadata: {
+                context: 'B16_strict_guard_manual_real_fastpath',
+                intent_metadata: intent.metadata ?? null,
+                request_id: requestId,
+              },
+            });
+          } catch (logErr) {
+            console.error('❌ COORDINATOR: Failed to log B16 block', logErr);
+          }
+          return new Response(
+            JSON.stringify({
+              ok: false, success: false, error: 'sell_without_parent_blocked',
+              decision: {
+                action: 'REJECTED',
+                reason: 'sell_intent_missing_original_trade_id',
+                request_id: requestId,
+                message: 'Manual SELL must carry metadata.originalTradeId.',
+              },
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+
+        if (!isBuySide) {
+          // --- B5: parent BUY validity ---
+          try {
+            await assertParentValid(supabaseClient, originalTradeId, tradeAmount, 'L3680_manual_real_fastpath');
+          } catch (b5err) {
+            console.log('[COORD][MANUAL_REAL][B5_BLOCK]', {
+              userId: intent.userId, symbol: baseSymbol, parentId: originalTradeId,
+              sellQty: tradeAmount, error: String((b5err as any)?.message || b5err),
+              request_id: requestId,
+            });
+            await logB5Block(supabaseClient, intent, baseSymbol, 'manual_real', originalTradeId, tradeAmount, b5err);
+            return new Response(
+              JSON.stringify({
+                ok: false, success: false, error: 'b5_guard_blocked',
+                decision: {
+                  action: 'DEFER',
+                  reason: 'blocked_parent_invalid_manual_real',
+                  request_id: requestId,
+                  message: String((b5err as any)?.message || b5err),
+                },
+              }),
+              { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+            );
+          }
+
+          // --- B2: pre-emission inventory check ---
+          try {
+            const _b2 = await assertSufficientInventory(
+              supabaseClient, intent.userId, intent.strategyId, baseSymbol, tradeAmount, 'manual_real',
+            );
+            console.log(`✅ [B2_GUARD] manual_real: avail=${_b2.availableQty} requested=${tradeAmount}`);
+          } catch (b2err) {
+            const _avail = (b2err as any)?.availableQty ?? null;
+            console.log('[COORD][MANUAL_REAL][B2_BLOCK]', {
+              userId: intent.userId, symbol: baseSymbol, qty_requested: tradeAmount,
+              available_qty: _avail, deficit: parseB2Deficit(b2err),
+              error: String((b2err as any)?.message || b2err), request_id: requestId,
+            });
+            await supabaseClient.from('decision_events').insert({
+              user_id: intent.userId, strategy_id: intent.strategyId, symbol: baseSymbol,
+              side: 'SELL', source: intent.source ?? 'manual',
+              reason: 'blocked_insufficient_inventory_manual_real',
+              decision_ts: new Date().toISOString(),
+              metadata: {
+                blocked: true, qty_requested: tradeAmount, available_qty: _avail,
+                deficit: parseB2Deficit(b2err), context: 'manual_real',
+                symbol: baseSymbol, request_id: requestId,
+                error: String((b2err as any)?.message || b2err),
+              },
+            });
+            return new Response(
+              JSON.stringify({
+                ok: false, success: false, error: 'insufficient_inventory',
+                decision: {
+                  action: 'DEFER',
+                  reason: 'blocked_insufficient_inventory_manual_real',
+                  request_id: requestId, qty_requested: tradeAmount,
+                  message: String((b2err as any)?.message || b2err),
+                },
+              }),
+              { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+            );
+          }
+        }
+        // ============= END B16 / B5 / B2 GUARDS (manual REAL fast-path) =============
+
         // =========================================================================
         // PHASE 3B: Insert mock_trades PLACEHOLDER before execution
         // This ensures real_trades FK constraint is satisfied when
         // onchain-sign-and-send inserts the SUBMITTED row
         // =========================================================================
         const mockTradeId = crypto.randomUUID();
-        const isBuySide = intent.side.toLowerCase() === "buy";
         const placeholderRecord = {
           id: mockTradeId,
           user_id: intent.userId,
@@ -3694,6 +3812,7 @@ serve(async (req) => {
           notes: 'PENDING_ONCHAIN: Awaiting receipt confirmation',
           idempotency_key: `pending_${mockTradeId}`,
           ...(isBuySide ? { is_open_position: true } : {}), // SEV-1: DB-level invariant
+          ...(originalTradeId ? { original_trade_id: originalTradeId } : {}),
         };
 
         const { error: placeholderError } = await supabaseClient
