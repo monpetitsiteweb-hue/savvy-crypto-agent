@@ -3312,6 +3312,18 @@ serve(async (req) => {
       precomputedFusionData ? { ...body, fusion: precomputedFusionData } : body
     );
 
+    // HOISTED (was L4504): unifiedConfig must be available to the AUTOMATED_INTELLIGENT
+    // BUY pre-gate inserted below in the REAL execution branch. Pure read of
+    // strategy.configuration — no side effects. The original L4504 declaration is removed.
+    const unifiedConfig: UnifiedConfig = strategy.configuration?.unifiedConfig || {
+      enableUnifiedDecisions: false,
+      minHoldPeriodMs: 120000,
+      cooldownBetweenOppositeActionsMs: 30000,
+      confidenceOverrideThreshold: 0.7,
+    };
+    console.log(`[COORD] unifiedConfig resolved: enableUnifiedDecisions=${unifiedConfig.enableUnifiedDecisions} (source=${strategy.configuration?.unifiedConfig ? 'configuration.unifiedConfig' : 'default_fallback'})`);
+
+
     // ============= PANIC GATE (hard blocker) =============
     if (panicActive) {
       console.log("🚫 COORDINATOR: PANIC ACTIVE - all trades blocked for this strategy");
