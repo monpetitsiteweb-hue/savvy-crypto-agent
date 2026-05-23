@@ -3401,9 +3401,88 @@ serve(async (req) => {
         execClass_intent: execClass.intent,
       });
 
+      // =====================================================================
+      // PR: WIRE detectConflicts ON AUTOMATED_INTELLIGENT BUY PATH
+      // Root cause: commit 16603f094 + 549ab3771 (2026-04-10) moved
+      // intelligent intents to the synchronous fast-path below, which returns
+      // before reaching detectConflicts (L4905). All gates G1/G4/G4b/G5b/G6 +
+      // exposure caps C0a/b/c are bypassed for intelligent BUYs.
+      //
+      // Scope (BUY-only, intelligent-only, not system_operator, not liquidation):
+      //   - intelligent SELLs: UNCHANGED (continue via fast-path with B2/B5 inline)
+      //   - manual BUYs/SELLs: UNCHANGED
+      //   - system_operator / liquidation: UNCHANGED (bypass)
+      //
+      // SELL TP/SL non-regression: enforced by `intent.side === 'BUY'` guard.
+      // detectConflicts SELL branch (L7345 minHoldPeriodMs, applies to all SELLs)
+      // is NEVER invoked from this site.
+      // =====================================================================
+      if (
+        intent.side === "BUY"
+        && intent.source === "intelligent"
+        && !execClass.isSystemOperator
+        && !liquidationBatchId
+      ) {
+        console.log(`🛡️ COORDINATOR: AUTOMATED_INTELLIGENT BUY pre-gate — invoking detectConflicts for ${intent.symbol}`);
+        const conflictResult = await detectConflicts(supabaseClient, intent, unifiedConfig, {
+          ...strategy,
+          configuration: { ...strategy.configuration, canonicalIsTestMode, canonicalExecutionMode },
+          canonicalIsTestMode,
+          canonicalExecutionMode,
+        });
+
+        if (conflictResult.hasConflict) {
+          const guardReport = conflictResult.guardReport || {};
+          const guardNames =
+            Object.entries(guardReport)
+              .filter(([, v]) => v)
+              .map(([k]) => k)
+              .join(", ") || "unknown";
+          const reasonWithGuards = `Guards tripped: ${guardNames}`;
+
+          console.log(`🚫 COORDINATOR: AUTOMATED_INTELLIGENT BUY blocked — reason=${conflictResult.reason} symbol=${intent.symbol} guards=${guardNames}`);
+
+          // Mirror L4932-L4949: get price for context + write decision_event
+          const baseSymbolForLog = toBaseSymbol(intent.symbol);
+          const priceData = await getMarketPrice(baseSymbolForLog, 15000);
+
+          await logDecisionAsync(
+            supabaseClient,
+            intent,
+            "DEFER",
+            conflictResult.reason as Reason,
+            unifiedConfig,
+            requestId,
+            undefined,
+            undefined,
+            priceData.price,
+            { ...strategy.configuration, canonicalIsTestMode },
+            undefined,
+            precomputedFusionData,
+          );
+
+          // Mirror L4951-L4963: DEFER response shape
+          return new Response(
+            withFusion({
+              ok: true,
+              decision: {
+                action: "DEFER",
+                reason: reasonWithGuards,
+              },
+            }),
+            {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+        console.log(`✅ COORDINATOR: AUTOMATED_INTELLIGENT BUY pre-gate PASSED for ${intent.symbol}`);
+      }
+
       // For system_operator_mode OR automated intelligent trades: skip user wallet checks (uses SYSTEM wallet)
       // Phase 2: Deprecated check - now derived from execClass.isSystemOperator
       const isAutomatedIntelligent = intent.source === "intelligent";
+
       if (isSystemOperatorMode || isAutomatedIntelligent) {
         const skipLabel = isSystemOperatorMode ? "system_operator_mode" : "automated_intelligent";
         console.log(`🔧 COORDINATOR: ${skipLabel} - skipping user wallet prerequisite checks (uses SYSTEM wallet)`);
