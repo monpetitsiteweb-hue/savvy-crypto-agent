@@ -101,15 +101,6 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
   const handleDirectSell = async () => {
     if (!sellConfirmation || !user) return;
 
-    if (!executionWallet) {
-      toast({
-        title: 'No active execution wallet',
-        description: 'A funded execution wallet is required to submit a REAL SELL.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     setSubmitting(true);
     try {
       const trade = sellConfirmation;
@@ -125,8 +116,10 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
           force: false,
           metadata: {
             originalTradeId: trade.id,
-            execution_wallet_id: executionWallet.id,
-            wallet_address: executionWallet.wallet_address,
+            ...(executionWallet ? {
+              execution_wallet_id: executionWallet.id,
+              wallet_address: executionWallet.wallet_address,
+            } : {}),
             slippage_bps: 100,
           },
         },
