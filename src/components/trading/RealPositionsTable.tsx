@@ -108,6 +108,8 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
 
       const payload = {
         intent: {
+          userId: user.id,
+          strategyId: trade.strategy_id,
           source: 'manual',
           side: 'SELL',
           symbol: base,
