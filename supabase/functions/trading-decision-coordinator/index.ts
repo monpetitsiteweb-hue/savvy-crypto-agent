@@ -3571,11 +3571,14 @@ serve(async (req) => {
       // Get wallet address - for system_operator_mode use metadata or skip user lookup
       let walletAddress: string;
       
-      if (isSystemOperatorMode || isAutomatedIntelligent) {
-        // System operator and automated intelligent trades use BOT_ADDRESS (SYSTEM wallet)
-        // The actual signing happens in onchain-sign-and-send which reads BOT_ADDRESS
+      if (isSystemOperatorMode || isAutomatedIntelligent || isManualCustodialFallback) {
+        // System operator, automated intelligent, and manual custodial fallback trades
+        // use BOT_ADDRESS (SYSTEM wallet). The actual signing happens in
+        // onchain-sign-and-send which reads BOT_ADDRESS.
         walletAddress = intent.metadata?.wallet_address || "SYSTEM_WALLET";
-        const walletLabel = isSystemOperatorMode ? "system_operator_mode" : "automated_intelligent";
+        const walletLabel = isSystemOperatorMode ? "system_operator_mode"
+          : isAutomatedIntelligent ? "automated_intelligent"
+          : "manual_custodial_fallback";
         console.log(`🔧 COORDINATOR: ${walletLabel} - using SYSTEM wallet for execution`);
       } else {
         // Regular manual trades - fetch user's execution wallet
