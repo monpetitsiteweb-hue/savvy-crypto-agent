@@ -244,7 +244,7 @@ export function RealPositionsTable({ onRefresh }: RealPositionsTableProps) {
                 <span className="font-mono text-xs">
                   {executionWallet
                     ? `${executionWallet.wallet_address.slice(0, 6)}…${executionWallet.wallet_address.slice(-4)}`
-                    : '— none —'}
+                    : 'System Wallet (admin custody)'}
                 </span>
               </div>
             </div>
