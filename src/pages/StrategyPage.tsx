@@ -53,7 +53,7 @@ export default function StrategyPage() {
         </TabsContent>
 
         <TabsContent value="configuration" className="space-y-6">
-          <ComprehensiveStrategyConfig onBack={() => {}} />
+          <StrategyConfig />
         </TabsContent>
 
         <TabsContent value="backtesting" className="space-y-6">
