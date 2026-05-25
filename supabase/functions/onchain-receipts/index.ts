@@ -1602,6 +1602,7 @@ Deno.serve(async (req) => {
         .select('*')
         .eq('execution_status', 'CONFIRMED')
         .eq('receipt_status', true)
+        .gte('created_at', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
         .order('created_at', { ascending: false })
         .limit(50);
 
