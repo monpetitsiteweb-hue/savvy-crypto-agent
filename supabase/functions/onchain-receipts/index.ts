@@ -1145,7 +1145,7 @@ async function finalizeMockTradeAndSettle(params: {
   // ── Idempotence applicative : skip si déjà finalisé ───────────────────
   const { data: existingMock } = await supabase
     .from('mock_trades')
-    .select('execution_confirmed, settlement_status, original_trade_id, realized_pnl, tx_hash')
+    .select('execution_confirmed, settlement_status, original_trade_id, realized_pnl, tx_hash, created_at')
     .eq('id', mockTradeId)
     .maybeSingle();
 
@@ -1178,6 +1178,25 @@ async function finalizeMockTradeAndSettle(params: {
     });
     return { ok: true, reason: 'already_finalized_with_fifo' };
   }
+
+  // ── F2 defensive guard: abandon stale orphans (> 6h post-creation) ────
+  // Settlement is best-effort (`never fail the caller`), so a row that never
+  // settles can loop forever. Cap retry window to 6h regardless of state.
+  // Deployed 2026-05-25 (F2). Complements F1 is_archived filter.
+  if (existingMock?.created_at) {
+    const ageMs = Date.now() - new Date(existingMock.created_at).getTime();
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+    if (ageMs > SIX_HOURS_MS) {
+      console.log('ORPHAN_SKIP_STALE', {
+        mockTradeId,
+        tx_hash: txHash,
+        created_at: existingMock.created_at,
+        age_hours: (ageMs / 3600000).toFixed(2),
+      });
+      return { ok: true, reason: 'stale_orphan_skipped' };
+    }
+  }
+
 
   // ── Strategy ID fallback : recover from mock_trades if missing on real_trades ──
   if (!strategyId) {
@@ -1583,6 +1602,7 @@ Deno.serve(async (req) => {
         .select('*')
         .eq('execution_status', 'CONFIRMED')
         .eq('receipt_status', true)
+        .gte('created_at', new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString())
         .order('created_at', { ascending: false })
         .limit(50);
 
