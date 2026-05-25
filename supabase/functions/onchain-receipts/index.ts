@@ -1145,7 +1145,7 @@ async function finalizeMockTradeAndSettle(params: {
   // ── Idempotence applicative : skip si déjà finalisé ───────────────────
   const { data: existingMock } = await supabase
     .from('mock_trades')
-    .select('execution_confirmed, settlement_status, original_trade_id, realized_pnl, tx_hash')
+    .select('execution_confirmed, settlement_status, original_trade_id, realized_pnl, tx_hash, created_at')
     .eq('id', mockTradeId)
     .maybeSingle();
 
