@@ -162,7 +162,7 @@ const RPC_URLS: Record<number, string> = {
 // -----------------------------------
 // If the decoder CANNOT extract a valid (filledAmount, executedPrice, totalValue)
 // tuple from the receipt logs, it returns { success: false } with an error reason.
-// The caller (processReceipt) MUST refuse ledger insertion when success=false.
+// The caller MUST refuse ledger insertion when success=false.
 // This ensures NO real trade is ever recorded with estimated/quoted values.
 //
 // UNRECOGNIZED PATTERNS:
