@@ -1,7 +1,7 @@
 import React from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ComprehensiveStrategyConfig } from "@/components/strategy/ComprehensiveStrategyConfig";
+import { StrategyConfig } from "@/components/StrategyConfig";
 import { StrategyBacktest } from "@/components/strategy/StrategyBacktest";
 import { PerformanceDashboard } from "@/components/strategy/PerformanceDashboard";
 import { StrategyAutomation } from "@/components/strategy/StrategyAutomation";
@@ -53,7 +53,7 @@ export default function StrategyPage() {
         </TabsContent>
 
         <TabsContent value="configuration" className="space-y-6">
-          <ComprehensiveStrategyConfig onBack={() => {}} />
+          <StrategyConfig />
         </TabsContent>
 
         <TabsContent value="backtesting" className="space-y-6">

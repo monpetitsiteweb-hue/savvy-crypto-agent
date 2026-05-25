@@ -811,13 +811,15 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         spreadThresholdBps: canonicalSpreadThresholdBps,
       };
 
-      const strategyData = {
+      // B31 fix: shared content fields only. Do NOT include test_mode or
+      // is_active here — UPDATE must never override the lifecycle flags of an
+      // existing strategy. Those flags are injected exclusively in the INSERT
+      // branch below.
+      const baseStrategyData = {
         user_id: user.id,
         strategy_name: formData.strategyName,
         description: formData.notes || null,
         configuration: configurationWithCanonicalKeys as any,
-        test_mode: true, // Always create in test mode
-        is_active: false, // Keep for backward compatibility
         updated_at: new Date().toISOString(),
         // Execution settings
         execution_mode: formData.executionSettings.execution_mode,
@@ -833,7 +835,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       if (isEditing && existingStrategy) {
         const { error } = await (supabase as any)
           .from('trading_strategies')
-          .update(strategyData)
+          .update(baseStrategyData)
           .eq('id', existingStrategy.id)
           .eq('user_id', user.id);
 
@@ -849,8 +851,9 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
         const { data, error } = await (supabase as any)
           .from('trading_strategies')
           .insert({
-            ...strategyData,
-            test_mode: true
+            ...baseStrategyData,
+            test_mode: true,   // new strategies always start in TEST
+            is_active: false   // inactive until handleActivateInTestMode
           })
           .select()
           .single();
