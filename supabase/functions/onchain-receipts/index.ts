@@ -1055,9 +1055,19 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          const blockTimestamp = orphanReceipt.blockTimestamp
-            ? new Date(parseInt(orphanReceipt.blockTimestamp, 16) * 1000).toISOString()
-            : new Date().toISOString();
+          const { iso: blockTimestamp, source: blockTimestampSource } =
+            await resolveBlockTimestamp(rt.chain_id, orphanReceipt, rt);
+
+          if (
+            (blockTimestampSource === 'receipt' || blockTimestampSource === 'eth_getBlockByNumber') &&
+            !rt.block_timestamp
+          ) {
+            await supabase
+              .from('real_trades')
+              .update({ block_timestamp: blockTimestamp })
+              .eq('trade_id', rt.trade_id)
+              .is('block_timestamp', null);
+          }
 
           console.log('ORPHAN_RECOVERY_ATTEMPT', {
             mockTradeId: linkedMockId,
