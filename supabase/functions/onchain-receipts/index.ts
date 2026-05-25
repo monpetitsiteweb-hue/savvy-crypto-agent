@@ -831,9 +831,20 @@ async function pollAndFinalizeRealTrade(realTrade: any) {
 
   // ── T1bis: extend pipeline ─────────────────────────────────────────
   // 3a. Resolve blockTimestamp from receipt
-  const blockTimestamp = receipt.blockTimestamp
-    ? new Date(parseInt(receipt.blockTimestamp, 16) * 1000).toISOString()
-    : new Date().toISOString();
+  const { iso: blockTimestamp, source: blockTimestampSource } =
+    await resolveBlockTimestamp(chainId, receipt, realTrade);
+
+  // Backfill real_trades.block_timestamp if sourced on-chain and currently NULL
+  if (
+    (blockTimestampSource === 'receipt' || blockTimestampSource === 'eth_getBlockByNumber') &&
+    !realTrade.block_timestamp
+  ) {
+    await supabase
+      .from('real_trades')
+      .update({ block_timestamp: blockTimestamp })
+      .eq('trade_id', tradeId)
+      .is('block_timestamp', null);
+  }
 
   if (txSuccess) {
     // 3b. Lookup the linked mock_trades placeholder via real_trades.trade_id
