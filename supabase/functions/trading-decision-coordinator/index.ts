@@ -7430,7 +7430,7 @@ async function detectConflicts(
     } catch (e) { lotCountError = e; }
 
     if (lotCountError) {
-      console.error(`⚠️ COORDINATOR: Gate 5b lot count query failed`, lotCountError);
+      return { hasConflict: true, reason: "max_lots_per_symbol_query_failed", guardReport };
     } else if ((openLotCount ?? 0) >= MAX_LOTS_PER_SYMBOL) {
       console.log(`🚫 COORDINATOR: BUY blocked - max lots per symbol reached (${openLotCount} >= ${MAX_LOTS_PER_SYMBOL}) for ${baseSymbol}`);
       guardReport.maxLotsPerSymbolReached = true;
