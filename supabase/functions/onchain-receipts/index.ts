@@ -1279,7 +1279,8 @@ async function finalizeMockTradeAndSettle(params: {
       gas_cost_eth: gasCostEth,
       notes: `On-chain execution confirmed | tx:${txHash?.substring(0, 10)}... | provider:${provider || 'unknown'} | decoded:${decoded.decodeMethod}${traceabilityNote}`,
     })
-    .eq('id', mockTradeId);
+    .eq('id', mockTradeId)
+    .eq('is_archived', false);
 
   if (updateError) {
     console.error('MOCK_TRADE_FINALIZE_FAILED', {
@@ -1594,11 +1595,18 @@ Deno.serve(async (req) => {
 
           const { data: mockRow } = await supabase
             .from('mock_trades')
-            .select('id, execution_confirmed, settlement_status')
+            .select('id, execution_confirmed, settlement_status, is_archived')
             .eq('id', linkedMockId)
             .maybeSingle();
 
           if (!mockRow) continue;
+          if (mockRow.is_archived === true) {
+            console.log('ORPHAN_SKIP_ARCHIVED', {
+              mockTradeId: linkedMockId,
+              tx_hash: rt.tx_hash,
+            });
+            continue;
+          }
           if (
             mockRow.execution_confirmed === true &&
             mockRow.settlement_status === 'SETTLED'
