@@ -74,7 +74,8 @@ async function assertParentValid(
     .select('amount')
     .eq('original_trade_id', parentId)
     .eq('trade_type', 'sell')
-    .eq('is_corrupted', false);
+    .eq('is_corrupted', false)
+    .eq('is_archived', false);
 
   if (priorSellsErr) {
     throw new Error(`[B5_GUARD] inventory_check_failed: parentId=${parentId} context=${context} error=${priorSellsErr.message}`);
