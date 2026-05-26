@@ -971,8 +971,8 @@ Deno.serve(async (req) => {
           const { domain, types, message, primaryType } = quoteData.raw.permit2.eip712;
           
           // Import viem for typed data signing
-          const { privateKeyToAccount } = await import('npm:viem@2.x/accounts');
-          const { numberToHex, size, concat } = await import('npm:viem@2.x');
+          const { privateKeyToAccount } = await import('npm:viem@2.21.54/accounts');
+          const { numberToHex, size, concat } = await import('npm:viem@2.21.54');
           
           // Get bot private key
           const botPk = Deno.env.get('BOT_PRIVATE_KEY') || Deno.env.get('BOT_PK');

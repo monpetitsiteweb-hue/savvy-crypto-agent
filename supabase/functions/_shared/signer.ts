@@ -3,9 +3,9 @@
  * Supports webhook-based signing (production) and local signing (dev only)
  */
 
-import { parseEther, parseUnits } from 'npm:viem@2.x';
-import { privateKeyToAccount } from 'npm:viem@2.x/accounts';
-import { base } from 'npm:viem@2.x/chains';
+import { parseEther, parseUnits } from 'npm:viem@2.21.54';
+import { privateKeyToAccount } from 'npm:viem@2.21.54/accounts';
+import { base } from 'npm:viem@2.21.54/chains';
 
 const ALLOWED_CHAIN_IDS = [8453]; // Base only
 const MAX_TX_VALUE_WEI = BigInt(Deno.env.get('MAX_TX_VALUE_WEI') || '100000000000000000000'); // 100 ETH default
