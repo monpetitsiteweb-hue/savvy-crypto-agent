@@ -329,7 +329,10 @@ export const CoinsAmountsPanel = ({ formData, updateFormData, capPerCoinEUR = nu
                   </SelectContent>
                 </Select>
               </div>
+              {capHelper}
+              {capWarning}
             </div>
+
 
           </div>
 
