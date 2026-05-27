@@ -1160,6 +1160,16 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
+    // Auto-reset expired intent_retry_storm breakers (Bug B fix, 2026-05-27)
+    const breakerResetResult = await autoResetExpiredIntentBreakers(supabaseClient);
+    if (breakerResetResult.reset_count > 0) {
+      console.log(
+        `[CYCLE_START] Auto-reset ${breakerResetResult.reset_count} expired breaker(s) before processing strategies`
+      );
+    }
+
+
+
     const body = await req.json().catch(() => ({}));
     const { userId, strategyId, symbols: requestedSymbols } = body;
 
