@@ -550,6 +550,49 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     minEntrySpacingMs: MEDIUM_RISK_PRESET.minEntrySpacingMs,           // 15 minutes
   });
 
+  // === B30: cap_per_coin live warning ===
+  // usePortfolioMetrics() takes no args — uses internal useAuth + useTradingMode
+  const { metrics, rpcFailed: portfolioRpcFailed } = usePortfolioMetrics();
+  const walletValueEUR = metrics?.total_portfolio_value_eur ?? null;
+
+  const { capPerCoinEUR, perTradeEUR, isInvalid, canCompute } = useMemo(() => {
+    const maxActiveCoins = Number(formData.maxActiveCoins);
+    const maxWalletExposure = Number(formData.maxWalletExposure);
+    const perTradeAllocation = Number(formData.perTradeAllocation);
+    const allocationUnit = (formData as any).allocationUnit ?? 'euro';
+
+    const canCompute = (
+      walletValueEUR !== null &&
+      Number.isFinite(walletValueEUR) &&
+      (walletValueEUR as number) > 0 &&
+      !portfolioRpcFailed &&
+      Number.isFinite(maxActiveCoins) && maxActiveCoins > 0 &&
+      Number.isFinite(maxWalletExposure) && maxWalletExposure > 0 &&
+      Number.isFinite(perTradeAllocation) && perTradeAllocation > 0
+    );
+
+    if (!canCompute) {
+      return { capPerCoinEUR: null as number | null, perTradeEUR: null as number | null, isInvalid: false, canCompute: false };
+    }
+
+    const wv = walletValueEUR as number;
+    const cap = wv * (maxWalletExposure / 100) / maxActiveCoins;
+    const perTradeInEur = allocationUnit === 'percentage'
+      ? wv * (perTradeAllocation / 100)
+      : perTradeAllocation;
+
+    return {
+      capPerCoinEUR: cap,
+      perTradeEUR: perTradeInEur,
+      isInvalid: perTradeInEur > cap,
+      canCompute: true,
+    };
+  }, [formData.maxActiveCoins, formData.maxWalletExposure, formData.perTradeAllocation, (formData as any).allocationUnit, walletValueEUR, portfolioRpcFailed]);
+
+  const [showCapWarningModal, setShowCapWarningModal] = useState(false);
+  const pendingSubmitEventRef = useRef<React.FormEvent | null>(null);
+
+
   // Apply risk profile presets - uses ALL effective risk levers
   const handleRiskProfileChange = (riskProfile: 'low' | 'medium' | 'high' | 'custom') => {
     const preset = getPresetByRiskProfile(riskProfile);
