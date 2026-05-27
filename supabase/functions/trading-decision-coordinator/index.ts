@@ -5350,6 +5350,7 @@ async function reconstructOpenLotsFromDb(
     .eq("user_id", userId)
     .eq("strategy_id", strategyId)
     .eq("trade_type", "sell")
+    .eq("is_archived", false)
     .in("original_trade_id", buyIds);
 
   // Calculate sold amount per lot
