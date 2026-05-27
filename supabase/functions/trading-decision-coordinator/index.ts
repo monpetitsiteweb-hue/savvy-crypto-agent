@@ -8759,6 +8759,7 @@ async function executeTradeOrder(
           .eq("strategy_id", intent.strategyId)
           .eq("cryptocurrency", baseSymbol)
           .eq("trade_type", "sell")
+          .eq("is_archived", false)
           .eq("is_test_mode", true);
 
         if (!buyTrades || buyTrades.length === 0) {
