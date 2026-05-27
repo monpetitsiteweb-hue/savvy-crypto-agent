@@ -590,7 +590,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
   }, [formData.maxActiveCoins, formData.maxWalletExposure, formData.perTradeAllocation, (formData as any).allocationUnit, walletValueEUR, portfolioRpcFailed]);
 
   const [showCapWarningModal, setShowCapWarningModal] = useState(false);
-  const pendingSubmitEventRef = useRef<React.FormEvent | null>(null);
+
 
 
   // Apply risk profile presets - uses ALL effective risk levers
