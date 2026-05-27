@@ -1644,8 +1644,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                   {activeSection === 'coins-amounts' && (
                     <CoinsAmountsPanel 
                       formData={formData} 
-                      updateFormData={updateFormData} 
+                      updateFormData={updateFormData}
+                      capPerCoinEUR={capPerCoinEUR}
+                      perTradeEUR={perTradeEUR}
+                      isInvalid={isInvalid}
+                      canCompute={canCompute}
                     />
+
                   )}
 
                   {/* Notifications Section */}
