@@ -28,6 +28,7 @@ export interface TradeRow {
   executed_at: string;
   original_trade_id?: string | null;
   is_test_mode?: boolean;
+  is_archived?: boolean;
 }
 
 export interface OpenLot {
