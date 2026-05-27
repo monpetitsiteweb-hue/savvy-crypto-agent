@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { usePortfolioMetrics } from '@/hooks/usePortfolioMetrics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -549,6 +550,49 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     minEntrySpacingMs: MEDIUM_RISK_PRESET.minEntrySpacingMs,           // 15 minutes
   });
 
+  // === B30: cap_per_coin live warning ===
+  // usePortfolioMetrics() takes no args — uses internal useAuth + useTradingMode
+  const { metrics, rpcFailed: portfolioRpcFailed } = usePortfolioMetrics();
+  const walletValueEUR = metrics?.total_portfolio_value_eur ?? null;
+
+  const { capPerCoinEUR, perTradeEUR, isInvalid, canCompute } = useMemo(() => {
+    const maxActiveCoins = Number(formData.maxActiveCoins);
+    const maxWalletExposure = Number(formData.maxWalletExposure);
+    const perTradeAllocation = Number(formData.perTradeAllocation);
+    const allocationUnit = (formData as any).allocationUnit ?? 'euro';
+
+    const canCompute = (
+      walletValueEUR !== null &&
+      Number.isFinite(walletValueEUR) &&
+      (walletValueEUR as number) > 0 &&
+      !portfolioRpcFailed &&
+      Number.isFinite(maxActiveCoins) && maxActiveCoins > 0 &&
+      Number.isFinite(maxWalletExposure) && maxWalletExposure > 0 &&
+      Number.isFinite(perTradeAllocation) && perTradeAllocation > 0
+    );
+
+    if (!canCompute) {
+      return { capPerCoinEUR: null as number | null, perTradeEUR: null as number | null, isInvalid: false, canCompute: false };
+    }
+
+    const wv = walletValueEUR as number;
+    const cap = wv * (maxWalletExposure / 100) / maxActiveCoins;
+    const perTradeInEur = allocationUnit === 'percentage'
+      ? wv * (perTradeAllocation / 100)
+      : perTradeAllocation;
+
+    return {
+      capPerCoinEUR: cap,
+      perTradeEUR: perTradeInEur,
+      isInvalid: perTradeInEur > cap,
+      canCompute: true,
+    };
+  }, [formData.maxActiveCoins, formData.maxWalletExposure, formData.perTradeAllocation, (formData as any).allocationUnit, walletValueEUR, portfolioRpcFailed]);
+
+  const [showCapWarningModal, setShowCapWarningModal] = useState(false);
+
+
+
   // Apply risk profile presets - uses ALL effective risk levers
   const handleRiskProfileChange = (riskProfile: 'low' | 'medium' | 'high' | 'custom') => {
     const preset = getPresetByRiskProfile(riskProfile);
@@ -730,7 +774,7 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     e.preventDefault();
     if (!user) return;
 
-    // Validation: strategy name required
+    // Validation: strategy name required (must fire BEFORE cap_per_coin modal)
     if (!formData.strategyName?.trim()) {
       toast({
         title: "Validation Error",
@@ -739,6 +783,39 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
       });
       return;
     }
+
+    // Validate canonical ranges (must fire BEFORE cap_per_coin modal)
+    const canonicalMinHoldPeriodMsPre =
+      formData.unifiedConfig?.minHoldPeriodMs ??
+      formData.aiIntelligenceConfig?.features?.contextGates?.whaleConflictWindowMs ??
+      120000;
+    const canonicalCooldownMsPre =
+      formData.unifiedConfig?.cooldownBetweenOppositeActionsMs ?? 30000;
+    const canonicalAiConfidenceThresholdPre =
+      formData.aiIntelligenceConfig?.aiConfidenceThreshold ?? 50;
+    if (canonicalMinHoldPeriodMsPre < 0 || canonicalCooldownMsPre < 0 || canonicalAiConfidenceThresholdPre < 0 || canonicalAiConfidenceThresholdPre > 100) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid config values: minHoldPeriodMs and cooldownMs must be >= 0, aiConfidenceThreshold must be 0-100.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // B30: cap_per_coin deadlock guard — only after standard validations pass.
+    // Fail-open: if RPC failed or values can't be computed, skip the modal.
+    if (isInvalid && canCompute && !portfolioRpcFailed) {
+      setShowCapWarningModal(true);
+      return;
+    }
+
+    return performSave();
+  };
+
+  const performSave = async () => {
+    if (!user) return;
+
+
 
     // =========================================================================
     // CANONICAL CONFIG ENFORCEMENT
@@ -1567,8 +1644,13 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                   {activeSection === 'coins-amounts' && (
                     <CoinsAmountsPanel 
                       formData={formData} 
-                      updateFormData={updateFormData} 
+                      updateFormData={updateFormData}
+                      capPerCoinEUR={capPerCoinEUR}
+                      perTradeEUR={perTradeEUR}
+                      isInvalid={isInvalid}
+                      canCompute={canCompute}
                     />
+
                   )}
 
                   {/* Notifications Section */}
@@ -1934,6 +2016,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   disabled={formData.riskProfile !== 'custom'}
                                 />
                                 <div className="text-sm text-muted-foreground">{formData.maxWalletExposure}%</div>
+                                {canCompute && capPerCoinEUR !== null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Cap par coin actuel : {capPerCoinEUR.toFixed(2)} €
+                                  </p>
+                                )}
+                                {isInvalid && canCompute && capPerCoinEUR !== null && perTradeEUR !== null && (
+                                  <div className="flex items-start gap-2 p-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive">
+                                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                      ⚠️ Risque deadlock : votre allocation par trade ({perTradeEUR.toFixed(2)}€)
+                                      dépasse le cap par coin ({capPerCoinEUR.toFixed(2)}€). Le moteur bloquera
+                                      100% des BUYs avec <code>max_wallet_exposure_reached</code>.
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="space-y-2">
@@ -1949,6 +2046,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   max={10000}
                                   disabled={formData.riskProfile !== 'custom'}
                                 />
+                                {canCompute && capPerCoinEUR !== null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Cap par coin actuel : {capPerCoinEUR.toFixed(2)} €
+                                  </p>
+                                )}
+                                {isInvalid && canCompute && capPerCoinEUR !== null && perTradeEUR !== null && (
+                                  <div className="flex items-start gap-2 p-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive">
+                                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                      ⚠️ Risque deadlock : votre allocation par trade ({perTradeEUR.toFixed(2)}€)
+                                      dépasse le cap par coin ({capPerCoinEUR.toFixed(2)}€). Le moteur bloquera
+                                      100% des BUYs avec <code>max_wallet_exposure_reached</code>.
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="space-y-2">
@@ -1964,9 +2076,25 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   max={10}
                                   disabled={formData.riskProfile !== 'custom'}
                                 />
+                                {canCompute && capPerCoinEUR !== null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Cap par coin actuel : {capPerCoinEUR.toFixed(2)} €
+                                  </p>
+                                )}
+                                {isInvalid && canCompute && capPerCoinEUR !== null && perTradeEUR !== null && (
+                                  <div className="flex items-start gap-2 p-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive">
+                                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                      ⚠️ Risque deadlock : votre allocation par trade ({perTradeEUR.toFixed(2)}€)
+                                      dépasse le cap par coin ({capPerCoinEUR.toFixed(2)}€). Le moteur bloquera
+                                      100% des BUYs avec <code>max_wallet_exposure_reached</code>.
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
+
 
                           {/* SECTION: Exit Thresholds */}
                           <div className="space-y-4">
@@ -2808,6 +2936,42 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          {/* B30: cap_per_coin Save confirmation modal */}
+          <AlertDialog open={showCapWarningModal} onOpenChange={setShowCapWarningModal}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-5 w-5" />
+                  Configuration à risque de deadlock
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-base">
+                  Cette configuration bloquera 100% de vos BUYs
+                  {perTradeEUR !== null && capPerCoinEUR !== null && (
+                    <>
+                      {' '}(perTradeAllocation {perTradeEUR.toFixed(2)}€ &gt; cap_per_coin {capPerCoinEUR.toFixed(2)}€)
+                    </>
+                  )}.
+                  <br /><br />
+                  Le moteur refusera chaque tentative d'achat avec <code>max_wallet_exposure_reached</code>.
+                  <br /><br />
+                  <strong>Êtes-vous sûr de vouloir continuer ?</strong>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setShowCapWarningModal(false)}>
+                  Annuler
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => { setShowCapWarningModal(false); performSave(); }}
+                  className="bg-destructive hover:bg-destructive/90"
+                >
+                  Confirmer quand même
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
         </>
         )}
       </div>

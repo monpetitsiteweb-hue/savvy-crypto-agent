@@ -26,7 +26,12 @@ import { getUnsupportedSymbols } from '@/utils/marketAvailability';
 interface CoinsAmountsPanelProps {
   formData: any;
   updateFormData: (field: string, value: any) => void;
+  capPerCoinEUR?: number | null;
+  perTradeEUR?: number | null;
+  isInvalid?: boolean;
+  canCompute?: boolean;
 }
+
 
 const TooltipField = ({ 
   children, 
@@ -64,7 +69,21 @@ const TooltipField = ({
   </Tooltip>
 );
 
-export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPanelProps) => {
+export const CoinsAmountsPanel = ({ formData, updateFormData, capPerCoinEUR = null, perTradeEUR = null, isInvalid = false, canCompute = false }: CoinsAmountsPanelProps) => {
+  const capHelper = canCompute && capPerCoinEUR !== null ? (
+    <p className="text-xs text-muted-foreground">Cap par coin actuel : {capPerCoinEUR.toFixed(2)} €</p>
+  ) : null;
+  const capWarning = isInvalid && canCompute && capPerCoinEUR !== null && perTradeEUR !== null ? (
+    <div className="flex items-start gap-2 p-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive">
+      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+      <span>
+        ⚠️ Risque deadlock : votre allocation par trade ({perTradeEUR.toFixed(2)}€)
+        dépasse le cap par coin ({capPerCoinEUR.toFixed(2)}€). Le moteur bloquera
+        100% des BUYs avec <code>max_wallet_exposure_reached</code>.
+      </span>
+    </div>
+  ) : null;
+
   const [coinSearch, setCoinSearch] = useState('');
   
   // DEFENSIVE: Ensure selectedCoins is always an array
@@ -247,7 +266,10 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
                   <span className="font-medium">{formData.maxActiveCoins} coins</span>
                   <span>10</span>
                 </div>
+                {capHelper}
+                {capWarning}
               </div>
+
             </div>
 
             <div className="space-y-2">
@@ -307,7 +329,10 @@ export const CoinsAmountsPanel = ({ formData, updateFormData }: CoinsAmountsPane
                   </SelectContent>
                 </Select>
               </div>
+              {capHelper}
+              {capWarning}
             </div>
+
 
           </div>
 
