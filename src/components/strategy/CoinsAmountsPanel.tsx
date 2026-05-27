@@ -26,7 +26,12 @@ import { getUnsupportedSymbols } from '@/utils/marketAvailability';
 interface CoinsAmountsPanelProps {
   formData: any;
   updateFormData: (field: string, value: any) => void;
+  capPerCoinEUR?: number | null;
+  perTradeEUR?: number | null;
+  isInvalid?: boolean;
+  canCompute?: boolean;
 }
+
 
 const TooltipField = ({ 
   children, 
