@@ -1071,6 +1071,77 @@ function shouldLetWinnersRun(scores: SignalScores, fusionScore: number, config: 
   return { shouldRun, bullScore, threshold };
 }
 
+/**
+ * Auto-reset expired B6 intent_retry_storm circuit breakers.
+ * Scoped strictly to breakers named 'intent_retry_storm:%' — legacy
+ * slippage breakers are never touched. Fail-open: errors are logged
+ * but never thrown so the shadow-engine cycle continues.
+ */
+async function autoResetExpiredIntentBreakers(
+  supabaseClient: any
+): Promise<{ reset_count: number; reset_breakers: string[] }> {
+  const now = new Date();
+
+  const { data: trippedBreakers, error } = await supabaseClient
+    .from('execution_circuit_breakers')
+    .select('id, user_id, strategy_id, breaker, tripped_at, thresholds')
+    .like('breaker', 'intent_retry_storm:%')
+    .eq('tripped', true);
+
+  if (error) {
+    console.error('[AUTO_RESET_BREAKER] Fetch failed:', error);
+    return { reset_count: 0, reset_breakers: [] };
+  }
+  if (!trippedBreakers || trippedBreakers.length === 0) {
+    return { reset_count: 0, reset_breakers: [] };
+  }
+
+  const expiredIds: string[] = [];
+  const expiredNames: string[] = [];
+
+  for (const breaker of trippedBreakers) {
+    const cooldownMinutes = breaker.thresholds?.cooldown_minutes ?? 30;
+    const cooldownMs = cooldownMinutes * 60 * 1000;
+    const trippedAt = new Date(breaker.tripped_at).getTime();
+    const ageMs = now.getTime() - trippedAt;
+
+    if (ageMs >= cooldownMs) {
+      expiredIds.push(breaker.id);
+      expiredNames.push(breaker.breaker);
+    }
+  }
+
+  if (expiredIds.length === 0) {
+    return { reset_count: 0, reset_breakers: [] };
+  }
+
+  const { error: updateError } = await supabaseClient
+    .from('execution_circuit_breakers')
+    .update({
+      tripped: false,
+      cleared_at: now.toISOString(),
+      last_reset_at: now.toISOString(),
+      current_value: 0,
+      last_reason: 'auto_reset_cooldown_expired',
+      updated_at: now.toISOString(),
+    })
+    .in('id', expiredIds);
+
+  if (updateError) {
+    console.error('[AUTO_RESET_BREAKER] Update failed:', updateError);
+    return { reset_count: 0, reset_breakers: [] };
+  }
+
+  console.log(
+    `[AUTO_RESET_BREAKER] Reset ${expiredIds.length} expired B6 breaker(s):`,
+    expiredNames
+  );
+
+  return { reset_count: expiredIds.length, reset_breakers: expiredNames };
+}
+
+
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
