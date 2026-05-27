@@ -2778,6 +2778,7 @@ serve(async (req) => {
           .eq("strategy_id", intent.strategyId)
           .eq("cryptocurrency", baseSymbol)
           .eq("trade_type", "sell")
+          .eq("is_archived", false)
           .eq("is_test_mode", true)
           .not("original_purchase_amount", "is", null);
 
