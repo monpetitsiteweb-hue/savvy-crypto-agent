@@ -266,7 +266,10 @@ export const CoinsAmountsPanel = ({ formData, updateFormData, capPerCoinEUR = nu
                   <span className="font-medium">{formData.maxActiveCoins} coins</span>
                   <span>10</span>
                 </div>
+                {capHelper}
+                {capWarning}
               </div>
+
             </div>
 
             <div className="space-y-2">
