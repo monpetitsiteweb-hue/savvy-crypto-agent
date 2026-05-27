@@ -774,9 +774,36 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     e.preventDefault();
     if (!user) return;
 
-    // B30: cap_per_coin deadlock guard — intercept before any other validation
-    // so the user sees the modal even if other fields are valid. If RPC failed
-    // or values aren't computable, skip the modal (fail-open).
+    // Validation: strategy name required (must fire BEFORE cap_per_coin modal)
+    if (!formData.strategyName?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Strategy name is required.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Validate canonical ranges (must fire BEFORE cap_per_coin modal)
+    const canonicalMinHoldPeriodMsPre =
+      formData.unifiedConfig?.minHoldPeriodMs ??
+      formData.aiIntelligenceConfig?.features?.contextGates?.whaleConflictWindowMs ??
+      120000;
+    const canonicalCooldownMsPre =
+      formData.unifiedConfig?.cooldownBetweenOppositeActionsMs ?? 30000;
+    const canonicalAiConfidenceThresholdPre =
+      formData.aiIntelligenceConfig?.aiConfidenceThreshold ?? 50;
+    if (canonicalMinHoldPeriodMsPre < 0 || canonicalCooldownMsPre < 0 || canonicalAiConfidenceThresholdPre < 0 || canonicalAiConfidenceThresholdPre > 100) {
+      toast({
+        title: "Validation Error",
+        description: "Invalid config values: minHoldPeriodMs and cooldownMs must be >= 0, aiConfidenceThreshold must be 0-100.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // B30: cap_per_coin deadlock guard — only after standard validations pass.
+    // Fail-open: if RPC failed or values can't be computed, skip the modal.
     if (isInvalid && canCompute && !portfolioRpcFailed) {
       setShowCapWarningModal(true);
       return;
@@ -789,15 +816,6 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     if (!user) return;
 
 
-    // Validation: strategy name required
-    if (!formData.strategyName?.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Strategy name is required.",
-        variant: "destructive"
-      });
-      return;
-    }
 
     // =========================================================================
     // CANONICAL CONFIG ENFORCEMENT
