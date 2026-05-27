@@ -774,6 +774,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
     e.preventDefault();
     if (!user) return;
 
+    // B30: cap_per_coin deadlock guard — intercept before any other validation
+    // so the user sees the modal even if other fields are valid. If RPC failed
+    // or values aren't computable, skip the modal (fail-open).
+    if (isInvalid && canCompute && !portfolioRpcFailed) {
+      setShowCapWarningModal(true);
+      return;
+    }
+
+    return performSave();
+  };
+
+  const performSave = async () => {
+    if (!user) return;
+
+
     // Validation: strategy name required
     if (!formData.strategyName?.trim()) {
       toast({
