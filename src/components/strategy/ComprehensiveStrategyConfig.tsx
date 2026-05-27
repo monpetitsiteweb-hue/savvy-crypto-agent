@@ -2936,6 +2936,42 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          {/* B30: cap_per_coin Save confirmation modal */}
+          <AlertDialog open={showCapWarningModal} onOpenChange={setShowCapWarningModal}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="h-5 w-5" />
+                  Configuration à risque de deadlock
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-base">
+                  Cette configuration bloquera 100% de vos BUYs
+                  {perTradeEUR !== null && capPerCoinEUR !== null && (
+                    <>
+                      {' '}(perTradeAllocation {perTradeEUR.toFixed(2)}€ &gt; cap_per_coin {capPerCoinEUR.toFixed(2)}€)
+                    </>
+                  )}.
+                  <br /><br />
+                  Le moteur refusera chaque tentative d'achat avec <code>max_wallet_exposure_reached</code>.
+                  <br /><br />
+                  <strong>Êtes-vous sûr de vouloir continuer ?</strong>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setShowCapWarningModal(false)}>
+                  Annuler
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => { setShowCapWarningModal(false); performSave(); }}
+                  className="bg-destructive hover:bg-destructive/90"
+                >
+                  Confirmer quand même
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
         </>
         )}
       </div>
