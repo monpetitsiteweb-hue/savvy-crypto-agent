@@ -5350,6 +5350,7 @@ async function reconstructOpenLotsFromDb(
     .eq("user_id", userId)
     .eq("strategy_id", strategyId)
     .eq("trade_type", "sell")
+    .eq("is_archived", false)
     .in("original_trade_id", buyIds);
 
   // Calculate sold amount per lot
@@ -8758,6 +8759,7 @@ async function executeTradeOrder(
           .eq("strategy_id", intent.strategyId)
           .eq("cryptocurrency", baseSymbol)
           .eq("trade_type", "sell")
+          .eq("is_archived", false)
           .eq("is_test_mode", true);
 
         if (!buyTrades || buyTrades.length === 0) {

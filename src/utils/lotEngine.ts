@@ -28,6 +28,7 @@ export interface TradeRow {
   executed_at: string;
   original_trade_id?: string | null;
   is_test_mode?: boolean;
+  is_archived?: boolean;
 }
 
 export interface OpenLot {
@@ -103,8 +104,9 @@ export function reconstructOpenLots(trades: TradeRow[], symbolFilter?: string): 
         buysBySymbol.set(normalizedSymbol, []);
       }
       buysBySymbol.get(normalizedSymbol)!.push(trade);
-    } else if (trade.trade_type === 'sell' && trade.original_trade_id) {
+    } else if (trade.trade_type === 'sell' && trade.original_trade_id && !trade.is_archived) {
       // Track sold amount per lot (via original_trade_id)
+      // Excludes archived rows (failed/orphan SELLs that never reached the chain).
       const currentSold = sellsByLotId.get(trade.original_trade_id) || 0;
       sellsByLotId.set(trade.original_trade_id, currentSold + trade.amount);
     }
