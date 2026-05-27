@@ -2011,6 +2011,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   disabled={formData.riskProfile !== 'custom'}
                                 />
                                 <div className="text-sm text-muted-foreground">{formData.maxWalletExposure}%</div>
+                                {canCompute && capPerCoinEUR !== null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Cap par coin actuel : {capPerCoinEUR.toFixed(2)} €
+                                  </p>
+                                )}
+                                {isInvalid && canCompute && capPerCoinEUR !== null && perTradeEUR !== null && (
+                                  <div className="flex items-start gap-2 p-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive">
+                                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                      ⚠️ Risque deadlock : votre allocation par trade ({perTradeEUR.toFixed(2)}€)
+                                      dépasse le cap par coin ({capPerCoinEUR.toFixed(2)}€). Le moteur bloquera
+                                      100% des BUYs avec <code>max_wallet_exposure_reached</code>.
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="space-y-2">
@@ -2026,6 +2041,21 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   max={10000}
                                   disabled={formData.riskProfile !== 'custom'}
                                 />
+                                {canCompute && capPerCoinEUR !== null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Cap par coin actuel : {capPerCoinEUR.toFixed(2)} €
+                                  </p>
+                                )}
+                                {isInvalid && canCompute && capPerCoinEUR !== null && perTradeEUR !== null && (
+                                  <div className="flex items-start gap-2 p-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive">
+                                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                      ⚠️ Risque deadlock : votre allocation par trade ({perTradeEUR.toFixed(2)}€)
+                                      dépasse le cap par coin ({capPerCoinEUR.toFixed(2)}€). Le moteur bloquera
+                                      100% des BUYs avec <code>max_wallet_exposure_reached</code>.
+                                    </span>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="space-y-2">
@@ -2041,9 +2071,25 @@ export const ComprehensiveStrategyConfig: React.FC<ComprehensiveStrategyConfigPr
                                   max={10}
                                   disabled={formData.riskProfile !== 'custom'}
                                 />
+                                {canCompute && capPerCoinEUR !== null && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Cap par coin actuel : {capPerCoinEUR.toFixed(2)} €
+                                  </p>
+                                )}
+                                {isInvalid && canCompute && capPerCoinEUR !== null && perTradeEUR !== null && (
+                                  <div className="flex items-start gap-2 p-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive">
+                                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                                    <span>
+                                      ⚠️ Risque deadlock : votre allocation par trade ({perTradeEUR.toFixed(2)}€)
+                                      dépasse le cap par coin ({capPerCoinEUR.toFixed(2)}€). Le moteur bloquera
+                                      100% des BUYs avec <code>max_wallet_exposure_reached</code>.
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
+
 
                           {/* SECTION: Exit Thresholds */}
                           <div className="space-y-4">
