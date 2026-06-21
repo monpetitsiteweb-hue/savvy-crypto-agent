@@ -58,15 +58,25 @@ export async function fetchOpenLotsAuthoritative(
 
   if (!data || !Array.isArray(data)) return [];
 
-  return data.map((row: any): OpenLot => ({
-    id: row.id,
-    symbol: row.symbol,
-    entry_price: parseFloat(row.entry_price),
-    original_amount: parseFloat(row.original_amount),
-    remaining_amount: parseFloat(row.remaining_amount),
-    original_value_eur: parseFloat(row.original_value_eur),
-    executed_at: row.executed_at,
-    tx_hash: row.tx_hash ?? null,
-    flag_open: Boolean(row.flag_open),
-  }));
+  try {
+    return data.map((row: any): OpenLot => ({
+      id: row.id,
+      symbol: row.symbol,
+      entry_price: parseFloat(row.entry_price),
+      original_amount: parseFloat(row.original_amount),
+      remaining_amount: parseFloat(row.remaining_amount),
+      original_value_eur: parseFloat(row.original_value_eur),
+      executed_at: row.executed_at,
+      tx_hash: row.tx_hash ?? null,
+      flag_open: Boolean(row.flag_open),
+    }));
+  } catch (e) {
+    console.error('[openLots] map error', {
+      message: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+      rowCount: Array.isArray(data) ? data.length : null,
+      firstRow: Array.isArray(data) && data.length > 0 ? data[0] : null,
+    });
+    throw e;
+  }
 }

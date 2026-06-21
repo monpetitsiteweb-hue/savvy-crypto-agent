@@ -7430,7 +7430,19 @@ async function detectConflicts(
         isTestMode: canonicalIsTestMode, symbol: baseSymbol,
       });
       openLotCount = lots.length;
-    } catch (e) { lotCountError = e; }
+    } catch (e) {
+      console.error('[Gate5b] max_lots_per_symbol_query_failed', {
+        message: e instanceof Error ? e.message : String(e),
+        name: e instanceof Error ? e.name : typeof e,
+        stack: e instanceof Error ? e.stack : undefined,
+        user: intent.userId?.slice(0, 8),
+        strategy: intent.strategyId?.slice(0, 8),
+        isTestMode: canonicalIsTestMode,
+        symbol: baseSymbol,
+        idempotencyKey: intent.idempotencyKey,
+      });
+      lotCountError = e;
+    }
 
     if (lotCountError) {
       return { hasConflict: true, reason: "max_lots_per_symbol_query_failed", guardReport };
