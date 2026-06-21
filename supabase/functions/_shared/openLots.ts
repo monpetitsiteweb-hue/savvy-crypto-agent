@@ -40,6 +40,16 @@ export async function fetchOpenLotsAuthoritative(
   });
 
   if (error) {
+    console.error('[openLots] RPC error', {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+      user: userId.slice(0, 8),
+      strategy: strategyId.slice(0, 8),
+      isTestMode,
+      symbol: symbol ?? 'ALL',
+    });
     throw new Error(
       `[openLots] RPC failed for user=${userId.slice(0, 8)} strategy=${strategyId.slice(0, 8)} ` +
       `mode=${isTestMode ? 'TEST' : 'REAL'} symbol=${symbol ?? 'ALL'}: ${error.message}`,
